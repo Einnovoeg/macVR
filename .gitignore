@@ -1,0 +1,24 @@
+# macOS / Finder
+.DS_Store
+
+# Swift Package Manager
+.build/
+.swiftpm/
+Packages/
+
+# Xcode user data
+DerivedData/
+*.xcuserstate
+xcuserdata/
+*.xcworkspace/
+
+# Editors
+.idea/
+.vscode/
+
+# Local credentials / machine-specific config
+.netrc
+
+# Local test artifacts
+*.log
+/tmp/
