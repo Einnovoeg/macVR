@@ -154,7 +154,7 @@ static bool macvrGetViewConfigurationArray(
 
 /*
  * Swapchain entry points are exported so real applications can load the runtime,
- * but the current 0.2.0 line remains headless-first. Returning
+ * but the current release line remains headless-first. Returning
  * XR_ERROR_FUNCTION_UNSUPPORTED makes that limit explicit instead of pretending
  * graphics interop is implemented.
  */

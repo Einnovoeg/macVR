@@ -11,7 +11,7 @@ let releaseVersion: String = {
             .trimmingCharacters(in: .whitespacesAndNewlines),
         !raw.isEmpty
     else {
-        return "0.2.0"
+        return "0.3.0"
     }
     return raw
 }()
@@ -54,6 +54,10 @@ let package = Package(
         .executable(
             name: "macvr-jpeg-sender",
             targets: ["MacVRJPEGSenderApp"]
+        ),
+        .executable(
+            name: "macvr-capture-sender",
+            targets: ["MacVRCaptureSenderApp"]
         ),
         .executable(
             name: "macvr-runtime",
@@ -100,6 +104,10 @@ let package = Package(
             cSettings: [
                 .define("MACVR_RELEASE_VERSION", to: "\"\(releaseVersion)\""),
             ]
+        ),
+        .executableTarget(
+            name: "MacVRCaptureSenderApp",
+            dependencies: ["MacVRHostCore", "MacVRProtocol"]
         ),
         .executableTarget(
             name: "MacVRRuntimeApp",

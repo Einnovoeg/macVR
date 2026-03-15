@@ -2,14 +2,14 @@
 
 `macVR` is an experimental macOS VR runtime toolkit. It now ships a bundled native runtime service, an experimental OpenXR runtime shim, a graphical macOS control center, and the existing bridge ingest tools for feeding external renderers into the transport stack.
 
-Current release: `0.2.0`
+Current release: `0.3.0`
 
 This project is still experimental, but the current release is no longer limited to CLI-only transport probes. It includes:
 
 - `macvr-runtime`, a bundled bridge-first runtime service for macOS.
 - `MacVROpenXRRuntime`, an experimental OpenXR runtime shim with manifest generation support.
 - `macvr-control-center`, a packaged SwiftUI desktop control center with hover tooltips on every control.
-- Existing host, client, bridge simulator, and JPEG sender tools for validation and interoperability work.
+- Existing host, client, bridge simulator, static JPEG sender, and live display capture sender tools for validation and interoperability work.
 
 Support the project: [buymeacoffee.com/einnovoeg](https://buymeacoffee.com/einnovoeg)
 
@@ -19,6 +19,7 @@ Support the project: [buymeacoffee.com/einnovoeg](https://buymeacoffee.com/einno
 - Negotiates client and host control traffic over a simple JSON-line TCP protocol.
 - Accepts bridge-producer control traffic plus authenticated UDP frame ingestion.
 - Accepts local length-prefixed JPEG frames directly into the bundled runtime over localhost TCP.
+- Captures the live macOS desktop directly into the runtime with `macvr-capture-sender`.
 - Generates an OpenXR runtime manifest that points to the included experimental runtime shim.
 - Ships a graphical control center for starting the runtime, writing manifests, and monitoring runtime state.
 
@@ -28,6 +29,7 @@ Support the project: [buymeacoffee.com/einnovoeg](https://buymeacoffee.com/einno
 - `macvr-client`: client transport probe that receives stream data and can save JPEG frames.
 - `macvr-bridge-sim`: bridge producer shim with generated, file, directory, and TCP JPEG input modes.
 - `macvr-jpeg-sender`: portable helper that repeatedly sends `uint32_be length + JPEG bytes` to a local input socket.
+- `macvr-capture-sender`: native macOS display capture sender that pushes live desktop frames into the runtime over localhost TCP.
 - `macvr-runtime`: bundled runtime that combines bridge ingest, local JPEG ingest, and host streaming in one process.
 - `macvr-control-center`: SwiftUI control center for runtime launch, manifest writing, and live status inspection.
 - `libMacVROpenXRRuntime.dylib`: experimental OpenXR runtime shim for loader integration tests.
@@ -36,7 +38,7 @@ Support the project: [buymeacoffee.com/einnovoeg](https://buymeacoffee.com/einno
 
 - macOS 13 or later
 - Xcode command line tools with Swift 6.2 support
-- Screen Recording permission if you use `display-jpeg`
+- Screen Recording permission if you use `display-jpeg` or `macvr-capture-sender`
 
 Optional tools:
 
@@ -94,7 +96,7 @@ swift run macvr-runtime \
   --manifest-only
 ```
 
-### Runtime Smoke Test
+### Runtime Smoke Test With Live Display Capture
 
 Terminal 1:
 
@@ -118,6 +120,19 @@ swift run macvr-client \
 ```
 
 Terminal 3:
+
+```bash
+swift run macvr-capture-sender \
+  --host 127.0.0.1 \
+  --port 44000 \
+  --fps 15 \
+  --count 90 \
+  --scale 0.50 \
+  --jpeg-quality 60 \
+  --verbose
+```
+
+### Static JPEG Injection Smoke Test
 
 ```bash
 swift run macvr-jpeg-sender \
@@ -157,12 +172,13 @@ swift run macvr-client --host 127.0.0.1 --stream-mode bridge-jpeg --save-jpeg-ev
 Terminal 4:
 
 ```bash
-swift run macvr-jpeg-sender \
+swift run macvr-capture-sender \
   --host 127.0.0.1 \
   --port 44000 \
-  --jpeg-file /tmp/macvr-bridge-frame.jpg \
-  --fps 30 \
+  --fps 15 \
   --count 90 \
+  --scale 0.50 \
+  --jpeg-quality 60 \
   --verbose
 ```
 
@@ -176,6 +192,13 @@ uint32_be length
 ```
 
 The bundled runtime validates the JPEG with ImageIO, records width and height metadata, and makes the latest accepted frame available to bridge-jpeg clients.
+
+## Live macOS Capture Sender
+
+- `macvr-capture-sender` captures the selected macOS display, optionally scales it down, JPEG-encodes it, and pushes the result into `macvr-runtime` or `macvr-bridge-sim`.
+- Use `--list-displays` to discover available display IDs.
+- Lower `--scale` or `--jpeg-quality` if your frames exceed the runtime's `--jpeg-max-bytes` limit.
+- Screen Recording permission must be granted to the terminal or packaged app that launches the sender.
 
 ## OpenXR Runtime Notes
 
@@ -213,10 +236,10 @@ wine64 "$PWD/.build/win/macvr-jpeg-sender.exe" \
 
 ## Versioning
 
-- Project release version: `0.2.0`
+- Project release version: `0.3.0`
 - Wire protocol version: `1`
 - Changelog: [CHANGELOG.md](CHANGELOG.md)
-- Release notes: [docs/releases/v0.2.0.md](docs/releases/v0.2.0.md)
+- Release notes: [docs/releases/v0.3.0.md](docs/releases/v0.3.0.md)
 - Release packager: `scripts/release/build-release.sh`
 
 ## Licensing And Credits
@@ -231,5 +254,5 @@ Referenced interoperability and research projects credited in this release inclu
 
 - The included OpenXR runtime is not yet a full graphics-capable production runtime.
 - SteamVR, Wine, Proton, ALVR, Virtual Desktop, and Apple Game Porting Toolkit remain optional external tools; they are not bundled or redistributed by this repository.
-- `display-jpeg` remains a transport-validation mode, not a low-latency production PCVR renderer.
+- `display-jpeg` and `macvr-capture-sender` remain transport-validation paths, not low-latency production PCVR renderers.
 - The release now includes a macOS `.app` bundle, but it is ad-hoc signed for local use and is not notarized with an Apple Developer ID certificate.

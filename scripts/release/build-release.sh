@@ -69,6 +69,7 @@ cp "$BUILD_DIR/macvr-host" "$BIN_DIR/"
 cp "$BUILD_DIR/macvr-client" "$BIN_DIR/"
 cp "$BUILD_DIR/macvr-bridge-sim" "$BIN_DIR/"
 cp "$BUILD_DIR/macvr-jpeg-sender" "$BIN_DIR/"
+cp "$BUILD_DIR/macvr-capture-sender" "$BIN_DIR/"
 cp "$BUILD_DIR/macvr-runtime" "$BIN_DIR/"
 cp "$BUILD_DIR/libMacVROpenXRRuntime.dylib" "$BIN_DIR/"
 

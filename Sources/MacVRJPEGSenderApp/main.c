@@ -14,7 +14,7 @@
  * smoke-test tool and as a Windows sender when cross-compiled for Wine/GPTK.
  */
 #ifndef MACVR_RELEASE_VERSION
-#define MACVR_RELEASE_VERSION "0.1.1"
+#define MACVR_RELEASE_VERSION "0.3.0"
 #endif
 
 #ifdef _WIN32

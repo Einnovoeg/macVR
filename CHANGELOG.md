@@ -4,6 +4,28 @@ All notable changes to this project will be documented in this file.
 
 The format is based on Keep a Changelog, and this project uses Semantic Versioning for public releases.
 
+## [0.3.0] - 2026-03-15
+
+### Added
+
+- `macvr-capture-sender`, a native macOS live display capture sender that pushes JPEG frames into the bundled runtime or bridge simulator over the existing localhost TCP seam.
+- Shared `DisplayCapture` helper in `MacVRHostCore` so the host `display-jpeg` mode and the new capture sender reuse the same scaling and JPEG-encoding logic.
+- Release packaging now includes `macvr-capture-sender` alongside the existing GUI, runtime, and CLI binaries.
+- Release notes for the new live-capture workflow in `docs/releases/v0.3.0.md`.
+
+### Changed
+
+- Promoted the public release line from `0.2.0` to `0.3.0` to reflect the new native live-capture sender workflow.
+- Updated the control center so its copy-to-clipboard command now prefers the new live capture sender instead of the static JPEG file sender.
+- Reworked the README quick-start flow to document live macOS display capture directly into `macvr-runtime`.
+- Clarified dependency notes so Screen Recording permission is explicitly called out for both `display-jpeg` and `macvr-capture-sender`.
+
+### Fixed
+
+- Verified a full end-to-end live capture path using `macvr-runtime`, `macvr-client`, and `macvr-capture-sender`.
+- Removed duplicated display capture and JPEG encoding logic between the host frame source and the new sender path.
+- Corrected stale fallback version text in the portable C JPEG sender so non-package builds no longer report an outdated release.
+
 ## [0.2.0] - 2026-03-15
 
 ### Added

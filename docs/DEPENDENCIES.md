@@ -16,8 +16,9 @@
 ## Required To Run The Included Tools
 
 - No third-party Swift packages are required.
-- `macvr-host`, `macvr-client`, `macvr-bridge-sim`, `macvr-jpeg-sender`, `macvr-runtime`, and `macvr-control-center` all build from the sources in this repository.
+- `macvr-host`, `macvr-client`, `macvr-bridge-sim`, `macvr-jpeg-sender`, `macvr-capture-sender`, `macvr-runtime`, and `macvr-control-center` all build from the sources in this repository.
 - `MacVROpenXRRuntime` builds from the vendored Khronos OpenXR headers plus the C source in this repository.
+- Screen Recording permission is required if you run `macvr-host --stream-mode display-jpeg` or `macvr-capture-sender`.
 
 ## Optional Runtime Dependencies
 

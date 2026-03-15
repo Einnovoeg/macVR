@@ -1,8 +1,5 @@
-import CoreGraphics
 import Foundation
-import ImageIO
 import MacVRProtocol
-import UniformTypeIdentifiers
 
 /// Produces transport-ready frames for the active session stream mode.
 struct ProducedFrame: Sendable {
@@ -120,15 +117,15 @@ final class MockFrameSource: FrameSource, @unchecked Sendable {
 
 final class DisplayJPEGFrameSource: FrameSource, @unchecked Sendable {
     private let frameTag: String
-    private let displayID: CGDirectDisplayID
-    private let jpegQuality: CGFloat
+    private let displayID: UInt32?
+    private let jpegQuality: Int
     private let logger: HostLogger
     private var droppedFrameCount: UInt64 = 0
 
     init(frameTag: String, displayID: UInt32?, jpegQuality: Int, logger: HostLogger) {
         self.frameTag = frameTag
-        self.displayID = displayID.map { CGDirectDisplayID($0) } ?? CGMainDisplayID()
-        self.jpegQuality = CGFloat(HostConfiguration.clampJPEGQuality(jpegQuality)) / 100.0
+        self.displayID = displayID
+        self.jpegQuality = jpegQuality
         self.logger = logger
     }
 
@@ -139,42 +136,22 @@ final class DisplayJPEGFrameSource: FrameSource, @unchecked Sendable {
         predictedDisplayTimeNs _: UInt64,
         pose _: PosePayload?
     ) -> ProducedFrame? {
-        guard let image = CGDisplayCreateImage(displayID) else {
+        do {
+            let capture = try DisplayCapture.captureJPEG(
+                displayID: displayID,
+                jpegQuality: jpegQuality
+            )
+            return ProducedFrame(codec: .jpeg, flags: 0x01, payload: capture.jpegData)
+        } catch {
             droppedFrameCount &+= 1
             if droppedFrameCount % 120 == 1 {
                 logger.log(
                     .warning,
-                    "Display capture failed for display \(displayID). Screen Recording permission may be missing."
+                    error.localizedDescription
                 )
             }
             return nil
         }
-
-        let encoded = NSMutableData()
-        guard let destination = CGImageDestinationCreateWithData(
-            encoded,
-            UTType.jpeg.identifier as CFString,
-            1,
-            nil
-        ) else {
-            droppedFrameCount &+= 1
-            if droppedFrameCount % 120 == 1 {
-                logger.log(.warning, "Unable to initialize JPEG encoder destination for frame source \(frameTag)")
-            }
-            return nil
-        }
-
-        let options = [kCGImageDestinationLossyCompressionQuality: jpegQuality] as CFDictionary
-        CGImageDestinationAddImage(destination, image, options)
-        guard CGImageDestinationFinalize(destination) else {
-            droppedFrameCount &+= 1
-            if droppedFrameCount % 120 == 1 {
-                logger.log(.warning, "JPEG finalize failed for frame source \(frameTag)")
-            }
-            return nil
-        }
-
-        return ProducedFrame(codec: .jpeg, flags: 0x01, payload: encoded as Data)
     }
 }
 

@@ -107,17 +107,17 @@ final class ControlCenterModel: ObservableObject {
         appendLog("Reset OpenXR manifest fields to the local build defaults")
     }
 
-    func copySenderCommand() {
+    func copyCaptureSenderCommand() {
         let senderInvocation: String
-        if let senderExecutable = packagedSenderExecutablePath() {
+        if let senderExecutable = packagedExecutablePath(named: "macvr-capture-sender") {
             senderInvocation = "\"\(senderExecutable.path)\""
         } else {
-            senderInvocation = "swift run macvr-jpeg-sender"
+            senderInvocation = "swift run macvr-capture-sender"
         }
-        let command = "\(senderInvocation) --host 127.0.0.1 --port \(jpegInputPort) --jpeg-file /tmp/macvr-bridge-frame.jpg --fps 30 --verbose"
+        let command = "\(senderInvocation) --host 127.0.0.1 --port \(jpegInputPort) --fps 15 --jpeg-quality 60 --scale 0.50 --verbose"
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(command, forType: .string)
-        appendLog("Copied example jpeg sender command to the pasteboard")
+        appendLog("Copied live capture sender command to the pasteboard")
     }
 
     func openManifestFolder() {
@@ -189,15 +189,15 @@ final class ControlCenterModel: ObservableObject {
     /// Prefer a concrete executable path when the app is launched from a packaged
     /// release, but fall back to the development-time `swift run` workflow when the
     /// sender tool has not been built yet.
-    private func packagedSenderExecutablePath() -> URL? {
+    private func packagedExecutablePath(named executableName: String) -> URL? {
         let fileManager = FileManager.default
         let executableURL = URL(fileURLWithPath: preferredRuntimeLibraryBaseExecutablePath())
             .standardizedFileURL
             .resolvingSymlinksInPath()
         let bundleURL = Bundle.main.bundleURL.standardizedFileURL
         let candidates = [
-            executableURL.deletingLastPathComponent().appendingPathComponent("macvr-jpeg-sender"),
-            bundleURL.deletingLastPathComponent().appendingPathComponent("bin", isDirectory: true).appendingPathComponent("macvr-jpeg-sender"),
+            executableURL.deletingLastPathComponent().appendingPathComponent(executableName),
+            bundleURL.deletingLastPathComponent().appendingPathComponent("bin", isDirectory: true).appendingPathComponent(executableName),
         ]
         return candidates.first(where: { fileManager.isExecutableFile(atPath: $0.path) })
     }
@@ -372,11 +372,11 @@ struct ContentView: View {
                 .buttonStyle(.bordered)
                 .help("Write an OpenXR loader manifest that points to the experimental macVR runtime shim library.")
 
-                Button(action: model.copySenderCommand) {
-                    Label("Copy Sender Command", systemImage: "doc.on.doc")
+                Button(action: model.copyCaptureSenderCommand) {
+                    Label("Copy Live Capture", systemImage: "doc.on.doc")
                 }
                 .buttonStyle(.bordered)
-                .help("Copy a working `macvr-jpeg-sender` example command that targets the configured JPEG input port.")
+                .help("Copy a working `macvr-capture-sender` example command that captures the current macOS display and targets the configured JPEG input port.")
 
                 Link(destination: URL(string: "https://buymeacoffee.com/einnovoeg")!) {
                     Label("Buy Me a Coffee", systemImage: "cup.and.saucer.fill")
