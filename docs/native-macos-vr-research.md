@@ -73,6 +73,6 @@ This note summarizes what FEX, Proton, Wine, Game Porting Toolkit, and related o
 - Wine wiki home text (platform statement): https://gitlab.winehq.org/wine/wine/-/wikis/home/diff?version_id=79b2ce5a03b4127fc7c5a049d63c8437d041827b
 - Apple Game Porting Toolkit page: https://developer.apple.com/games/game-porting-toolkit
 - OpenXR SDK source: https://github.com/KhronosGroup/OpenXR-SDK-Source
-- Monado README mirror: https://github.com/leviathanch/monado
+- Monado upstream project: https://gitlab.freedesktop.org/monado/monado
 - ALVR README/support table: https://github.com/alvr-org/ALVR
 - Virtual Desktop official site (requirements): https://www.vrdesktop.net/

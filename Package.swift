@@ -1,6 +1,20 @@
 // swift-tools-version: 6.2
 
+import Foundation
 import PackageDescription
+
+// Keep C-target release metadata sourced from the checked-in VERSION file so
+// package builds and release docs do not drift independently.
+let releaseVersion: String = {
+    guard
+        let raw = try? String(contentsOfFile: "VERSION", encoding: .utf8)
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+        !raw.isEmpty
+    else {
+        return "0.2.0"
+    }
+    return raw
+}()
 
 let package = Package(
     name: "macVR",
@@ -15,6 +29,15 @@ let package = Package(
         .library(
             name: "MacVRHostCore",
             targets: ["MacVRHostCore"]
+        ),
+        .library(
+            name: "MacVRRuntimeCore",
+            targets: ["MacVRRuntimeCore"]
+        ),
+        .library(
+            name: "MacVROpenXRRuntime",
+            type: .dynamic,
+            targets: ["MacVROpenXRRuntime"]
         ),
         .executable(
             name: "macvr-host",
@@ -32,6 +55,14 @@ let package = Package(
             name: "macvr-jpeg-sender",
             targets: ["MacVRJPEGSenderApp"]
         ),
+        .executable(
+            name: "macvr-runtime",
+            targets: ["MacVRRuntimeApp"]
+        ),
+        .executable(
+            name: "macvr-control-center",
+            targets: ["MacVRControlCenterApp"]
+        ),
     ],
     targets: [
         .target(
@@ -40,6 +71,17 @@ let package = Package(
         .target(
             name: "MacVRHostCore",
             dependencies: ["MacVRProtocol"]
+        ),
+        .target(
+            name: "MacVRRuntimeCore",
+            dependencies: ["MacVRHostCore", "MacVRProtocol"]
+        ),
+        .target(
+            name: "MacVROpenXRRuntime",
+            publicHeadersPath: "include",
+            cSettings: [
+                .define("MACVR_RELEASE_VERSION", to: "\"\(releaseVersion)\""),
+            ]
         ),
         .executableTarget(
             name: "MacVRHostApp",
@@ -54,11 +96,22 @@ let package = Package(
             dependencies: ["MacVRProtocol"]
         ),
         .executableTarget(
-            name: "MacVRJPEGSenderApp"
+            name: "MacVRJPEGSenderApp",
+            cSettings: [
+                .define("MACVR_RELEASE_VERSION", to: "\"\(releaseVersion)\""),
+            ]
+        ),
+        .executableTarget(
+            name: "MacVRRuntimeApp",
+            dependencies: ["MacVRRuntimeCore", "MacVRProtocol"]
+        ),
+        .executableTarget(
+            name: "MacVRControlCenterApp",
+            dependencies: ["MacVRRuntimeCore", "MacVRProtocol"]
         ),
         .testTarget(
             name: "MacVRHostCoreTests",
-            dependencies: ["MacVRHostCore", "MacVRProtocol"]
+            dependencies: ["MacVRHostCore", "MacVRProtocol", "MacVRRuntimeCore", "MacVROpenXRRuntime"]
         ),
     ]
 )

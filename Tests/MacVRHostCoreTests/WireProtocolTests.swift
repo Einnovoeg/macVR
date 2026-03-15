@@ -36,11 +36,24 @@ final class WireProtocolTests: XCTestCase {
         XCTAssertEqual(HostConfiguration.frameIntervalNanoseconds(targetFPS: 120), 8_333_333)
         XCTAssertEqual(HostConfiguration.clampPacketSize(100), 512)
         XCTAssertEqual(HostConfiguration.clampPacketSize(2000), 2000)
-        XCTAssertEqual(HostConfiguration.clampJPEGQuality(10), 20)
+        XCTAssertEqual(HostConfiguration.clampJPEGQuality(0), 1)
+        XCTAssertEqual(HostConfiguration.clampJPEGQuality(10), 10)
         XCTAssertEqual(HostConfiguration.clampJPEGQuality(120), 100)
         XCTAssertEqual(HostConfiguration.clampBridgeFrameAgeMs(-10), 0)
         XCTAssertEqual(HostConfiguration.clampBridgeFrameAgeMs(250), 250)
         XCTAssertEqual(HostConfiguration.clampBridgeFrameAgeMs(20_000), 10_000)
+    }
+
+    func testReleaseVersionMatchesVersionFile() throws {
+        let repositoryRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let versionFile = repositoryRoot.appendingPathComponent("VERSION")
+        let version = try String(contentsOf: versionFile, encoding: .utf8)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+
+        XCTAssertEqual(version, macVRReleaseVersion)
     }
 
     func testFrameChunkPacketizeAndReassemble() throws {

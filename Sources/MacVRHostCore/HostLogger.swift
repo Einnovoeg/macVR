@@ -7,13 +7,17 @@ public enum HostLogLevel: String {
     case debug = "DEBUG"
 }
 
+public typealias HostLogSink = @Sendable (String) -> Void
+
 public final class HostLogger: @unchecked Sendable {
     private let lock = NSLock()
     private let verbose: Bool
     private let timestampFormatter: ISO8601DateFormatter
+    private let sink: HostLogSink?
 
-    public init(verbose: Bool) {
+    public init(verbose: Bool, sink: HostLogSink? = nil) {
         self.verbose = verbose
+        self.sink = sink
         self.timestampFormatter = ISO8601DateFormatter()
         self.timestampFormatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
     }
@@ -25,8 +29,9 @@ public final class HostLogger: @unchecked Sendable {
 
         lock.lock()
         defer { lock.unlock() }
-        let timestamp = timestampFormatter.string(from: Date())
-        print("[\(timestamp)] [\(level.rawValue)] \(message)")
+        let line = "[\(timestampFormatter.string(from: Date()))] [\(level.rawValue)] \(message)"
+        print(line)
         fflush(stdout)
+        sink?(line)
     }
 }

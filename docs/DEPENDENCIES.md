@@ -10,11 +10,14 @@
   - CoreGraphics
   - ImageIO
   - UniformTypeIdentifiers
+  - AppKit
+  - SwiftUI
 
-## Required To Run Core Tools
+## Required To Run The Included Tools
 
 - No third-party Swift packages are required.
-- `macvr-host`, `macvr-client`, `macvr-bridge-sim`, and `macvr-jpeg-sender` build from the sources in this repository.
+- `macvr-host`, `macvr-client`, `macvr-bridge-sim`, `macvr-jpeg-sender`, `macvr-runtime`, and `macvr-control-center` all build from the sources in this repository.
+- `MacVROpenXRRuntime` builds from the vendored Khronos OpenXR headers plus the C source in this repository.
 
 ## Optional Runtime Dependencies
 
@@ -27,6 +30,17 @@
 - `x86_64-w64-mingw32-gcc` or `zig`
   - Needed only to build `macvr-jpeg-sender.exe` with `scripts/wine/build-jpeg-sender-win32.sh`.
 
+## Optional Release Packaging Tools
+
+- `codesign`
+  - Used by `scripts/release/build-release.sh` to ad-hoc sign the generated `.app` bundle when the tool is available.
+
+- `ditto`
+  - Used to produce the macOS zip artifact from the staged release directory.
+
+- `shasum`
+  - Used to generate the release checksum file for the packaged zip artifact.
+
 ## Optional Ecosystem Software
 
 - Apple Game Porting Toolkit
@@ -35,5 +49,5 @@
 - Steam for Windows inside Wine or GPTK
   - Optional user workflow component.
 
-- Quest streaming/display tooling
+- Quest streaming and display tooling
   - Optional and user-supplied. Not bundled by this repository.

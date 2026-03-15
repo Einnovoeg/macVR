@@ -1,0 +1,4 @@
+module MacVROpenXRRuntime {
+    header "macvr_openxr_runtime_public.h"
+    export *
+}

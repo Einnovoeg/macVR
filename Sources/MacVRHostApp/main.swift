@@ -219,11 +219,39 @@ struct MacVRHostApp {
             )
 
             try host.start()
+            signal(SIGINT, SIG_IGN)
+            signal(SIGTERM, SIG_IGN)
+
+            // Route process signals through GCD so the host and bridge listener
+            // can stop cleanly instead of being torn down mid-stream.
+            let stopServices = {
+                host.stop()
+                bridgeService?.stop()
+            }
+
+            let sigintSource = DispatchSource.makeSignalSource(signal: SIGINT, queue: .main)
+            sigintSource.setEventHandler {
+                stopServices()
+                exit(EXIT_SUCCESS)
+            }
+            sigintSource.resume()
+
+            let sigtermSource = DispatchSource.makeSignalSource(signal: SIGTERM, queue: .main)
+            sigtermSource.setEventHandler {
+                stopServices()
+                exit(EXIT_SUCCESS)
+            }
+            sigtermSource.resume()
+
             logger.log(.info, "macVR protocol version \(macVRProtocolVersion)")
             logger.log(.info, "Press Ctrl+C to stop")
             RunLoop.main.run()
             withExtendedLifetime(host) {
-                withExtendedLifetime(bridgeService) {}
+                withExtendedLifetime(bridgeService) {
+                    withExtendedLifetime(sigintSource) {
+                        withExtendedLifetime(sigtermSource) {}
+                    }
+                }
             }
         } catch let cliError as CLIError {
             switch cliError {

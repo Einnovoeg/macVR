@@ -5,12 +5,16 @@
 .build/
 .swiftpm/
 Packages/
+.codex-home/
+.codex-cache/
 
 # Xcode user data
 DerivedData/
 *.xcuserstate
 xcuserdata/
 *.xcworkspace/
+*.xcresult
+*.dSYM/
 
 # Editors
 .idea/
@@ -22,3 +26,8 @@ xcuserdata/
 # Local test artifacts
 *.log
 /tmp/
+
+# Release artifacts
+dist/
+*.zip
+*.sha256

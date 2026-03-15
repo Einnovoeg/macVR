@@ -13,6 +13,10 @@
  * local length-prefixed TCP protocol. The same source works as a native macOS
  * smoke-test tool and as a Windows sender when cross-compiled for Wine/GPTK.
  */
+#ifndef MACVR_RELEASE_VERSION
+#define MACVR_RELEASE_VERSION "0.1.1"
+#endif
+
 #ifdef _WIN32
 #define WIN32_LEAN_AND_MEAN
 #include <winsock2.h>
@@ -69,7 +73,7 @@ static const char *usage_text =
     "  --verbose                    Enable debug logging\n"
     "  -h, --help                   Show this help\n";
 
-static const char *sender_release_version = "0.1.0";
+static const char *sender_release_version = MACVR_RELEASE_VERSION;
 
 static void log_message(const char *level, const char *format, ...) {
     char timestamp[32];

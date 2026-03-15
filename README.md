@@ -1,27 +1,36 @@
 # macVR
 
-`macVR` is an experimental macOS toolkit for VR streaming and interoperability work. It provides a native macOS host/client transport stack, a bridge ingest path for externally produced frames, and tooling for feeding Wine or Game Porting Toolkit workflows into that bridge.
+`macVR` is an experimental macOS VR runtime toolkit. It now ships a bundled native runtime service, an experimental OpenXR runtime shim, a graphical macOS control center, and the existing bridge ingest tools for feeding external renderers into the transport stack.
 
-Current release: `0.1.0`
+Current release: `0.2.0`
 
-This project is CLI-first. It is not yet a full OpenXR runtime replacement, and it does not bundle SteamVR, Wine, Proton, ALVR, Virtual Desktop, or Apple Game Porting Toolkit.
+This project is still experimental, but the current release is no longer limited to CLI-only transport probes. It includes:
+
+- `macvr-runtime`, a bundled bridge-first runtime service for macOS.
+- `MacVROpenXRRuntime`, an experimental OpenXR runtime shim with manifest generation support.
+- `macvr-control-center`, a packaged SwiftUI desktop control center with hover tooltips on every control.
+- Existing host, client, bridge simulator, and JPEG sender tools for validation and interoperability work.
 
 Support the project: [buymeacoffee.com/einnovoeg](https://buymeacoffee.com/einnovoeg)
 
 ## What It Does
 
 - Streams mock, display-captured, or externally bridged JPEG frames over UDP.
-- Negotiates client/host control traffic over a simple JSON-line TCP protocol.
+- Negotiates client and host control traffic over a simple JSON-line TCP protocol.
 - Accepts bridge-producer control traffic plus authenticated UDP frame ingestion.
-- Provides a local TCP JPEG ingest seam so external tooling can push frames into the bridge path.
-- Ships a portable JPEG sender stub that can be used natively on macOS or cross-compiled for Windows/Wine experiments.
+- Accepts local length-prefixed JPEG frames directly into the bundled runtime over localhost TCP.
+- Generates an OpenXR runtime manifest that points to the included experimental runtime shim.
+- Ships a graphical control center for starting the runtime, writing manifests, and monitoring runtime state.
 
 ## Included Tools
 
 - `macvr-host`: host runtime for `mock`, `display-jpeg`, and `bridge-jpeg` modes.
 - `macvr-client`: client transport probe that receives stream data and can save JPEG frames.
 - `macvr-bridge-sim`: bridge producer shim with generated, file, directory, and TCP JPEG input modes.
-- `macvr-jpeg-sender`: portable helper that repeatedly sends `uint32_be length + JPEG bytes` to the bridge simulator input socket.
+- `macvr-jpeg-sender`: portable helper that repeatedly sends `uint32_be length + JPEG bytes` to a local input socket.
+- `macvr-runtime`: bundled runtime that combines bridge ingest, local JPEG ingest, and host streaming in one process.
+- `macvr-control-center`: SwiftUI control center for runtime launch, manifest writing, and live status inspection.
+- `libMacVROpenXRRuntime.dylib`: experimental OpenXR runtime shim for loader integration tests.
 
 ## System Requirements
 
@@ -45,23 +54,82 @@ swift build
 swift test
 ```
 
+## Build A Versioned Release Bundle
+
+Create the versioned `.app`, CLI binaries, dylib, release notes, and zip asset locally:
+
+```bash
+scripts/release/build-release.sh
+```
+
+By default this writes a release directory under `dist/` and produces a zip named like `macVR-$(cat VERSION)-macos-arm64.zip`.
+
 ## Quick Start
 
-### Mock Transport Smoke Test
+### Bundled Runtime And Control Center
+
+Launch the packaged control center from a release build:
+
+```bash
+open "dist/macVR-$(cat VERSION)-macos-$(uname -m)/macVR Control Center.app"
+```
+
+Or run the control center directly from source:
+
+```bash
+swift run macvr-control-center
+```
+
+Or launch the bundled runtime directly:
+
+```bash
+swift run macvr-runtime --verbose
+```
+
+Write an OpenXR manifest that points to the local build output:
+
+```bash
+swift run macvr-runtime \
+  --write-openxr-manifest "$HOME/.config/openxr/1/active_runtime.json" \
+  --manifest-only
+```
+
+### Runtime Smoke Test
 
 Terminal 1:
 
 ```bash
-swift run macvr-host --stream-mode mock --fps 72 --verbose
+swift run macvr-runtime \
+  --control-port 42000 \
+  --bridge-port 43000 \
+  --jpeg-input-port 44000 \
+  --verbose
 ```
 
 Terminal 2:
 
 ```bash
-swift run macvr-client --stream-mode mock --verbose
+swift run macvr-client \
+  --host 127.0.0.1 \
+  --control-port 42000 \
+  --stream-mode bridge-jpeg \
+  --save-jpeg-every 0 \
+  --verbose
 ```
 
-### Bridge JPEG Smoke Test
+Terminal 3:
+
+```bash
+swift run macvr-jpeg-sender \
+  --host 127.0.0.1 \
+  --port 44000 \
+  --jpeg-file /tmp/macvr-bridge-frame.jpg \
+  --fps 30 \
+  --count 90 \
+  --verbose
+```
+
+### Bridge Simulator Workflow
 
 Terminal 1:
 
@@ -94,19 +162,27 @@ swift run macvr-jpeg-sender \
   --port 44000 \
   --jpeg-file /tmp/macvr-bridge-frame.jpg \
   --fps 30 \
+  --count 90 \
   --verbose
 ```
 
-## Bridge Input Protocol
+## Local JPEG Input Protocol
 
-`macvr-bridge-sim --jpeg-input-port <port>` listens on `127.0.0.1:<port>` and expects repeated frames encoded as:
+Both `macvr-runtime --jpeg-input-port <port>` and `macvr-bridge-sim --jpeg-input-port <port>` listen on `127.0.0.1:<port>` and expect repeated frames encoded as:
 
 ```text
 uint32_be length
 <length bytes of JPEG payload>
 ```
 
-If no fresh input arrives for about two seconds, the bridge simulator falls back to its file, directory, or generated-frame sources.
+The bundled runtime validates the JPEG with ImageIO, records width and height metadata, and makes the latest accepted frame available to bridge-jpeg clients.
+
+## OpenXR Runtime Notes
+
+- The included OpenXR runtime is experimental and headless-first.
+- It supports loader negotiation, instance and system creation, headless session creation, reference spaces, frame timing, and stereo view location.
+- It does not yet implement production graphics API integration or swapchain rendering.
+- The fastest way to point an OpenXR loader at it is to write a manifest with `macvr-runtime --write-openxr-manifest ...`.
 
 ## Wine Helpers
 
@@ -131,15 +207,17 @@ wine64 "$PWD/.build/win/macvr-jpeg-sender.exe" \
   --port 44000 \
   --jpeg-file 'Z:\tmp\macvr-bridge-frame.jpg' \
   --fps 30 \
+  --count 90 \
   --verbose
 ```
 
 ## Versioning
 
-- Project release version: `0.1.0`
+- Project release version: `0.2.0`
 - Wire protocol version: `1`
 - Changelog: [CHANGELOG.md](CHANGELOG.md)
-- Release notes: [docs/releases/v0.1.0.md](docs/releases/v0.1.0.md)
+- Release notes: [docs/releases/v0.2.0.md](docs/releases/v0.2.0.md)
+- Release packager: `scripts/release/build-release.sh`
 
 ## Licensing And Credits
 
@@ -147,9 +225,11 @@ wine64 "$PWD/.build/win/macvr-jpeg-sender.exe" \
 - Third-party notices: [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)
 - Research notes used to scope interoperability work: [docs/native-macos-vr-research.md](docs/native-macos-vr-research.md)
 
-## Known Limits
+Referenced interoperability and research projects credited in this release include FEX (Ryan Houdek and contributors), Proton (Valve Corporation), Wine (the Wine project authors), OpenXR-SDK-Source (Khronos Group and contributors), Monado contributors, and ALVR (polygraphene and alvr-org).
 
-- No headset runtime is bundled.
-- No graphical desktop UI is included in this release.
-- `display-jpeg` is intended for transport validation, not low-latency production PCVR.
-- Wine, GPTK, SteamVR, and Quest ecosystem tools remain external user-supplied components.
+## Current Limits
+
+- The included OpenXR runtime is not yet a full graphics-capable production runtime.
+- SteamVR, Wine, Proton, ALVR, Virtual Desktop, and Apple Game Porting Toolkit remain optional external tools; they are not bundled or redistributed by this repository.
+- `display-jpeg` remains a transport-validation mode, not a low-latency production PCVR renderer.
+- The release now includes a macOS `.app` bundle, but it is ad-hoc signed for local use and is not notarized with an Apple Developer ID certificate.

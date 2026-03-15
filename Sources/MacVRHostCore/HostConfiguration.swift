@@ -1,6 +1,7 @@
 import Foundation
 import MacVRProtocol
 
+/// Static host defaults plus value clamping shared by CLI parsing and runtime setup.
 public struct HostConfiguration: Sendable {
     public let controlPort: UInt16
     public let targetFPS: Int
@@ -50,7 +51,8 @@ public struct HostConfiguration: Sendable {
     }
 
     public static func clampJPEGQuality(_ quality: Int) -> Int {
-        min(max(quality, 20), 100)
+        // Keep runtime behavior aligned with the advertised CLI range.
+        min(max(quality, 1), 100)
     }
 
     public static func clampBridgeFrameAgeMs(_ maxAgeMs: Int) -> Int {
