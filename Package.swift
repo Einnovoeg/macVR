@@ -11,7 +11,7 @@ let releaseVersion: String = {
             .trimmingCharacters(in: .whitespacesAndNewlines),
         !raw.isEmpty
     else {
-        return "0.3.0"
+        return "0.4.0"
     }
     return raw
 }()
@@ -67,6 +67,10 @@ let package = Package(
             name: "macvr-control-center",
             targets: ["MacVRControlCenterApp"]
         ),
+        .executable(
+            name: "macvr-viewer",
+            targets: ["MacVRViewerApp"]
+        ),
     ],
     targets: [
         .target(
@@ -116,6 +120,10 @@ let package = Package(
         .executableTarget(
             name: "MacVRControlCenterApp",
             dependencies: ["MacVRRuntimeCore", "MacVRProtocol"]
+        ),
+        .executableTarget(
+            name: "MacVRViewerApp",
+            dependencies: ["MacVRHostCore", "MacVRProtocol"]
         ),
         .testTarget(
             name: "MacVRHostCoreTests",

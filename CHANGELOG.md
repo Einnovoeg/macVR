@@ -4,6 +4,27 @@ All notable changes to this project will be documented in this file.
 
 The format is based on Keep a Changelog, and this project uses Semantic Versioning for public releases.
 
+## [0.4.0] - 2026-03-23
+
+### Added
+
+- `macvr-viewer`, a native SwiftUI GUI receiver that connects to the macVR control channel, receives UDP frame traffic, decodes incoming JPEG frames, and displays a stereo preview with live transport metrics.
+- `macvr-viewer --headless`, a deterministic non-GUI verification mode for automated transport and release smoke tests.
+- Packaged `macVR Viewer.app` output in the release builder alongside the existing `macVR Control Center.app`.
+- Control-center integration for launching the packaged viewer directly from the release bundle or local build output.
+
+### Changed
+
+- Promoted the public release line from `0.3.0` to `0.4.0` to reflect the new end-to-end sender/runtime/receiver workflow.
+- Reworked the README quick start so the primary smoke path uses the GUI viewer instead of only the terminal probe.
+- Removed the reviewed-but-unintegrated experimental renderer, audio, controller, and tracking files from the build so the public package only ships code that is documented and verified.
+
+### Fixed
+
+- Eliminated build warnings introduced by unintegrated experimental runtime-core files.
+- Removed a custom unlicensed `xr_metal.h` experiment that did not match the shipped OpenXR runtime surface and should not have been part of a release.
+- Cleaned Finder metadata artifacts from the repository tree.
+
 ## [0.3.0] - 2026-03-15
 
 ### Added

@@ -1,14 +1,15 @@
 # macVR
 
-`macVR` is an experimental macOS VR runtime toolkit. It now ships a bundled native runtime service, an experimental OpenXR runtime shim, a graphical macOS control center, and the existing bridge ingest tools for feeding external renderers into the transport stack.
+`macVR` is an experimental macOS VR runtime toolkit. It now ships a bundled native runtime service, an experimental OpenXR runtime shim, a graphical macOS control center, a graphical macOS viewer/receiver, and the bridge ingest tools needed to feed external renderers into the transport stack.
 
-Current release: `0.3.0`
+Current release: `0.4.0`
 
 This project is still experimental, but the current release is no longer limited to CLI-only transport probes. It includes:
 
 - `macvr-runtime`, a bundled bridge-first runtime service for macOS.
 - `MacVROpenXRRuntime`, an experimental OpenXR runtime shim with manifest generation support.
 - `macvr-control-center`, a packaged SwiftUI desktop control center with hover tooltips on every control.
+- `macvr-viewer`, a packaged SwiftUI receiver that connects to the transport stack, decodes live frames, and shows a stereo preview with connection metrics.
 - Existing host, client, bridge simulator, static JPEG sender, and live display capture sender tools for validation and interoperability work.
 
 Support the project: [buymeacoffee.com/einnovoeg](https://buymeacoffee.com/einnovoeg)
@@ -20,8 +21,9 @@ Support the project: [buymeacoffee.com/einnovoeg](https://buymeacoffee.com/einno
 - Accepts bridge-producer control traffic plus authenticated UDP frame ingestion.
 - Accepts local length-prefixed JPEG frames directly into the bundled runtime over localhost TCP.
 - Captures the live macOS desktop directly into the runtime with `macvr-capture-sender`.
+- Connects to the runtime or host with `macvr-viewer` and renders a live stereo preview of the received stream.
 - Generates an OpenXR runtime manifest that points to the included experimental runtime shim.
-- Ships a graphical control center for starting the runtime, writing manifests, and monitoring runtime state.
+- Ships graphical control center and viewer apps for runtime management and live transport validation.
 
 ## Included Tools
 
@@ -32,6 +34,7 @@ Support the project: [buymeacoffee.com/einnovoeg](https://buymeacoffee.com/einno
 - `macvr-capture-sender`: native macOS display capture sender that pushes live desktop frames into the runtime over localhost TCP.
 - `macvr-runtime`: bundled runtime that combines bridge ingest, local JPEG ingest, and host streaming in one process.
 - `macvr-control-center`: SwiftUI control center for runtime launch, manifest writing, and live status inspection.
+- `macvr-viewer`: SwiftUI transport receiver that negotiates sessions, receives UDP frames, and displays a stereo preview with logs and throughput metrics.
 - `libMacVROpenXRRuntime.dylib`: experimental OpenXR runtime shim for loader integration tests.
 
 ## System Requirements
@@ -58,7 +61,7 @@ swift test
 
 ## Build A Versioned Release Bundle
 
-Create the versioned `.app`, CLI binaries, dylib, release notes, and zip asset locally:
+Create the versioned `.app` bundles, CLI binaries, dylib, release notes, and zip asset locally:
 
 ```bash
 scripts/release/build-release.sh
@@ -68,7 +71,7 @@ By default this writes a release directory under `dist/` and produces a zip name
 
 ## Quick Start
 
-### Bundled Runtime And Control Center
+### Bundled Runtime, Control Center, And Viewer
 
 Launch the packaged control center from a release build:
 
@@ -76,10 +79,28 @@ Launch the packaged control center from a release build:
 open "dist/macVR-$(cat VERSION)-macos-$(uname -m)/macVR Control Center.app"
 ```
 
+Open the packaged viewer from the same release bundle:
+
+```bash
+open "dist/macVR-$(cat VERSION)-macos-$(uname -m)/macVR Viewer.app"
+```
+
 Or run the control center directly from source:
 
 ```bash
 swift run macvr-control-center
+```
+
+Or run the viewer directly from source:
+
+```bash
+swift run macvr-viewer --auto-connect --stream-mode bridge-jpeg
+```
+
+For scripted transport checks without opening a window:
+
+```bash
+swift run macvr-viewer --headless --stream-mode bridge-jpeg --quit-after 8 --verbose
 ```
 
 Or launch the bundled runtime directly:
@@ -96,7 +117,7 @@ swift run macvr-runtime \
   --manifest-only
 ```
 
-### Runtime Smoke Test With Live Display Capture
+### Runtime Smoke Test With Live Display Capture And GUI Receive
 
 Terminal 1:
 
@@ -111,11 +132,12 @@ swift run macvr-runtime \
 Terminal 2:
 
 ```bash
-swift run macvr-client \
+swift run macvr-viewer \
   --host 127.0.0.1 \
   --control-port 42000 \
+  --udp-port 9944 \
   --stream-mode bridge-jpeg \
-  --save-jpeg-every 0 \
+  --auto-connect \
   --verbose
 ```
 
@@ -129,6 +151,17 @@ swift run macvr-capture-sender \
   --count 90 \
   --scale 0.50 \
   --jpeg-quality 60 \
+  --verbose
+```
+
+For a terminal-only receive probe, replace Terminal 2 with:
+
+```bash
+swift run macvr-client \
+  --host 127.0.0.1 \
+  --control-port 42000 \
+  --stream-mode bridge-jpeg \
+  --save-jpeg-every 0 \
   --verbose
 ```
 
@@ -200,6 +233,14 @@ The bundled runtime validates the JPEG with ImageIO, records width and height me
 - Lower `--scale` or `--jpeg-quality` if your frames exceed the runtime's `--jpeg-max-bytes` limit.
 - Screen Recording permission must be granted to the terminal or packaged app that launches the sender.
 
+## GUI Receiver Notes
+
+- `macvr-viewer` uses the same TCP control and UDP frame transport as `macvr-client`, but renders the newest JPEG frame inside a polished macOS GUI with hover tooltips, rolling throughput metrics, and stereo split/duplicate preview modes.
+- `macvr-viewer --headless` runs the same receiver stack without opening a window, which is useful for automated smoke tests and release verification.
+- Use duplicate mode when your sender is mono.
+- Use split mode when the incoming frame already contains left and right eye views side by side.
+- The control center can launch the packaged viewer directly from a release bundle.
+
 ## OpenXR Runtime Notes
 
 - The included OpenXR runtime is experimental and headless-first.
@@ -236,10 +277,10 @@ wine64 "$PWD/.build/win/macvr-jpeg-sender.exe" \
 
 ## Versioning
 
-- Project release version: `0.3.0`
+- Project release version: `0.4.0`
 - Wire protocol version: `1`
 - Changelog: [CHANGELOG.md](CHANGELOG.md)
-- Release notes: [docs/releases/v0.3.0.md](docs/releases/v0.3.0.md)
+- Release notes: [docs/releases/v0.4.0.md](docs/releases/v0.4.0.md)
 - Release packager: `scripts/release/build-release.sh`
 
 ## Licensing And Credits
@@ -254,5 +295,5 @@ Referenced interoperability and research projects credited in this release inclu
 
 - The included OpenXR runtime is not yet a full graphics-capable production runtime.
 - SteamVR, Wine, Proton, ALVR, Virtual Desktop, and Apple Game Porting Toolkit remain optional external tools; they are not bundled or redistributed by this repository.
-- `display-jpeg` and `macvr-capture-sender` remain transport-validation paths, not low-latency production PCVR renderers.
-- The release now includes a macOS `.app` bundle, but it is ad-hoc signed for local use and is not notarized with an Apple Developer ID certificate.
+- The shipped sender/receiver path now covers native macOS capture, runtime ingest, network transport, and GUI receive, but it is still a desktop preview pipeline rather than a Quest-ready headset compositor with tracked controller input.
+- The release now includes macOS `.app` bundles for both the control center and the viewer, but they are ad-hoc signed for local use and are not notarized with an Apple Developer ID certificate.

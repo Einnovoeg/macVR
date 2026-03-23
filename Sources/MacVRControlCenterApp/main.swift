@@ -120,6 +120,42 @@ final class ControlCenterModel: ObservableObject {
         appendLog("Copied live capture sender command to the pasteboard")
     }
 
+    func openViewer() {
+        let fileManager = FileManager.default
+        let bundleParent = Bundle.main.bundleURL.deletingLastPathComponent()
+        let packagedViewerApp = bundleParent.appendingPathComponent("macVR Viewer.app")
+
+        if fileManager.fileExists(atPath: packagedViewerApp.path) {
+            let configuration = NSWorkspace.OpenConfiguration()
+            NSWorkspace.shared.openApplication(at: packagedViewerApp, configuration: configuration) { _, error in
+                Task { @MainActor in
+                    if let error {
+                        self.errorMessage = error.localizedDescription
+                        self.appendLog("Viewer launch failed: \(error.localizedDescription)")
+                    } else {
+                        self.appendLog("Opened packaged macVR Viewer.app")
+                    }
+                }
+            }
+            return
+        }
+
+        if let viewerExecutable = packagedExecutablePath(named: "macvr-viewer") {
+            do {
+                let process = Process()
+                process.executableURL = viewerExecutable
+                try process.run()
+                appendLog("Launched macvr-viewer from \(viewerExecutable.path)")
+            } catch {
+                errorMessage = error.localizedDescription
+                appendLog("Viewer launch failed: \(error.localizedDescription)")
+            }
+            return
+        }
+
+        appendLog("Viewer launch skipped: build macvr-viewer or use the packaged release bundle first")
+    }
+
     func openManifestFolder() {
         NSWorkspace.shared.open(URL(fileURLWithPath: manifestPath).deletingLastPathComponent())
     }
@@ -378,6 +414,12 @@ struct ContentView: View {
                 .buttonStyle(.bordered)
                 .help("Copy a working `macvr-capture-sender` example command that captures the current macOS display and targets the configured JPEG input port.")
 
+                Button(action: model.openViewer) {
+                    Label("Open Viewer", systemImage: "play.rectangle.on.rectangle")
+                }
+                .buttonStyle(.bordered)
+                .help("Launch the packaged macVR Viewer app, or the locally built `macvr-viewer` executable, to preview the incoming stream in a stereo GUI.")
+
                 Link(destination: URL(string: "https://buymeacoffee.com/einnovoeg")!) {
                     Label("Buy Me a Coffee", systemImage: "cup.and.saucer.fill")
                 }
@@ -560,6 +602,18 @@ struct ContentView: View {
 @main
 struct MacVRControlCenterApp: App {
     @StateObject private var model = ControlCenterModel()
+
+    init() {
+        let arguments = Set(CommandLine.arguments.dropFirst())
+        if arguments.contains("--version") {
+            print("macvr-control-center \(macVRReleaseVersion)")
+            exit(EXIT_SUCCESS)
+        }
+        if arguments.contains("--help") || arguments.contains("-h") {
+            print("Usage: macvr-control-center [--version] [--help]")
+            exit(EXIT_SUCCESS)
+        }
+    }
 
     var body: some Scene {
         WindowGroup("macVR Control Center") {

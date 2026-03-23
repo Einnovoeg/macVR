@@ -16,7 +16,7 @@
 ## Required To Run The Included Tools
 
 - No third-party Swift packages are required.
-- `macvr-host`, `macvr-client`, `macvr-bridge-sim`, `macvr-jpeg-sender`, `macvr-capture-sender`, `macvr-runtime`, and `macvr-control-center` all build from the sources in this repository.
+- `macvr-host`, `macvr-client`, `macvr-bridge-sim`, `macvr-jpeg-sender`, `macvr-capture-sender`, `macvr-runtime`, `macvr-control-center`, and `macvr-viewer` all build from the sources in this repository.
 - `MacVROpenXRRuntime` builds from the vendored Khronos OpenXR headers plus the C source in this repository.
 - Screen Recording permission is required if you run `macvr-host --stream-mode display-jpeg` or `macvr-capture-sender`.
 
@@ -34,7 +34,7 @@
 ## Optional Release Packaging Tools
 
 - `codesign`
-  - Used by `scripts/release/build-release.sh` to ad-hoc sign the generated `.app` bundle when the tool is available.
+  - Used by `scripts/release/build-release.sh` to ad-hoc sign the generated `.app` bundles when the tool is available.
 
 - `ditto`
   - Used to produce the macOS zip artifact from the staged release directory.
