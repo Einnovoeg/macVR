@@ -1,4 +1,6 @@
 import XCTest
+@testable import MacVRHostCore
+import MacVRProtocol
 @testable import MacVRRuntimeCore
 import MacVROpenXRRuntime
 
@@ -173,5 +175,134 @@ final class RuntimeIntegrationTests: XCTestCase {
         frameEndInfo.layerCount = 0
         frameEndInfo.layers = nil
         XCTAssertEqual(xrEndFrame(session, &frameEndInfo), XR_SUCCESS)
+    }
+
+    func testExperimentalOpenXRRuntimeReadsTrackingStateFile() throws {
+        let trackingStateURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("macvr-tracking-\(UUID().uuidString).bin")
+        let trackingStore = TrackingStateStore(path: trackingStateURL)
+        let trackedPose = PosePayload(
+            timestampNs: DispatchTime.now().uptimeNanoseconds,
+            positionMeters: [0.2, 1.75, -0.4],
+            orientationQuaternion: [0.0, 0.38268343, 0.0, 0.9238795]
+        )
+        try trackingStore.updateHeadPose(trackedPose)
+
+        let previousTrackingStatePath = getenv(TrackingStateStore.environmentVariable).map { String(cString: $0) }
+        setenv(TrackingStateStore.environmentVariable, trackingStateURL.path, 1)
+        defer {
+            if let previousTrackingStatePath {
+                setenv(TrackingStateStore.environmentVariable, previousTrackingStatePath, 1)
+            } else {
+                unsetenv(TrackingStateStore.environmentVariable)
+            }
+            try? FileManager.default.removeItem(at: trackingStateURL)
+        }
+
+        var loaderInfo = XrNegotiateLoaderInfo(
+            structType: XR_LOADER_INTERFACE_STRUCT_LOADER_INFO,
+            structVersion: UInt32(XR_LOADER_INFO_STRUCT_VERSION),
+            structSize: MemoryLayout<XrNegotiateLoaderInfo>.size,
+            minInterfaceVersion: 1,
+            maxInterfaceVersion: UInt32(XR_CURRENT_LOADER_RUNTIME_VERSION),
+            minApiVersion: xrAPIVersion10,
+            maxApiVersion: xrCurrentAPIVersion
+        )
+        var runtimeRequest = XrNegotiateRuntimeRequest(
+            structType: XR_LOADER_INTERFACE_STRUCT_RUNTIME_REQUEST,
+            structVersion: UInt32(XR_RUNTIME_INFO_STRUCT_VERSION),
+            structSize: MemoryLayout<XrNegotiateRuntimeRequest>.size,
+            runtimeInterfaceVersion: 0,
+            runtimeApiVersion: 0,
+            getInstanceProcAddr: nil
+        )
+        XCTAssertEqual(xrNegotiateLoaderRuntimeInterface(&loaderInfo, &runtimeRequest), XR_SUCCESS)
+
+        let headlessExtension = strdup(XR_MND_HEADLESS_EXTENSION_NAME)
+        defer { free(headlessExtension) }
+        let extensionNames: [UnsafePointer<CChar>?] = [UnsafePointer(headlessExtension)]
+
+        var createInfo = XrInstanceCreateInfo()
+        createInfo.type = XR_TYPE_INSTANCE_CREATE_INFO
+        createInfo.applicationInfo.apiVersion = xrAPIVersion10
+        withUnsafeMutableBytes(of: &createInfo.applicationInfo.applicationName) { rawBuffer in
+            rawBuffer.initializeMemory(as: UInt8.self, repeating: 0)
+            for (index, byte) in Array("macVRTrackingTests".utf8).enumerated() where index < rawBuffer.count - 1 {
+                rawBuffer[index] = byte
+            }
+        }
+        extensionNames.withUnsafeBufferPointer { buffer in
+            createInfo.enabledExtensionCount = UInt32(buffer.count)
+            createInfo.enabledExtensionNames = buffer.baseAddress
+        }
+
+        var instance: XrInstance?
+        XCTAssertEqual(xrCreateInstance(&createInfo, &instance), XR_SUCCESS)
+        defer { XCTAssertEqual(xrDestroyInstance(instance), XR_SUCCESS) }
+
+        var systemInfo = XrSystemGetInfo()
+        systemInfo.type = XR_TYPE_SYSTEM_GET_INFO
+        systemInfo.formFactor = XR_FORM_FACTOR_HEAD_MOUNTED_DISPLAY
+        var systemID: XrSystemId = 0
+        XCTAssertEqual(xrGetSystem(instance, &systemInfo, &systemID), XR_SUCCESS)
+
+        var sessionCreateInfo = XrSessionCreateInfo()
+        sessionCreateInfo.type = XR_TYPE_SESSION_CREATE_INFO
+        sessionCreateInfo.systemId = systemID
+        var session: XrSession?
+        XCTAssertEqual(xrCreateSession(instance, &sessionCreateInfo, &session), XR_SUCCESS)
+        defer { XCTAssertEqual(xrDestroySession(session), XR_SUCCESS) }
+
+        var sessionBeginInfo = XrSessionBeginInfo()
+        sessionBeginInfo.type = XR_TYPE_SESSION_BEGIN_INFO
+        sessionBeginInfo.primaryViewConfigurationType = XR_VIEW_CONFIGURATION_TYPE_PRIMARY_STEREO
+        XCTAssertEqual(xrBeginSession(session, &sessionBeginInfo), XR_SUCCESS)
+        defer { XCTAssertEqual(xrEndSession(session), XR_SUCCESS) }
+
+        var referenceSpaceInfo = XrReferenceSpaceCreateInfo()
+        referenceSpaceInfo.type = XR_TYPE_REFERENCE_SPACE_CREATE_INFO
+        referenceSpaceInfo.referenceSpaceType = XR_REFERENCE_SPACE_TYPE_LOCAL
+        referenceSpaceInfo.poseInReferenceSpace.orientation.w = 1
+        var localSpace: XrSpace?
+        XCTAssertEqual(xrCreateReferenceSpace(session, &referenceSpaceInfo, &localSpace), XR_SUCCESS)
+        defer { XCTAssertEqual(xrDestroySpace(localSpace), XR_SUCCESS) }
+
+        var location = XrSpaceLocation()
+        location.type = XR_TYPE_SPACE_LOCATION
+        XCTAssertEqual(xrLocateSpace(localSpace, localSpace, XrTime(DispatchTime.now().uptimeNanoseconds), &location), XR_SUCCESS)
+        XCTAssertEqual(location.pose.position.x, 0.2, accuracy: 0.001)
+        XCTAssertEqual(location.pose.position.y, 1.75, accuracy: 0.001)
+        XCTAssertEqual(location.pose.position.z, -0.4, accuracy: 0.001)
+        XCTAssertEqual(location.pose.orientation.y, 0.38268343, accuracy: 0.0001)
+        XCTAssertEqual(location.pose.orientation.w, 0.9238795, accuracy: 0.0001)
+
+        var frameWaitInfo = XrFrameWaitInfo()
+        frameWaitInfo.type = XR_TYPE_FRAME_WAIT_INFO
+        var frameState = XrFrameState()
+        frameState.type = XR_TYPE_FRAME_STATE
+        XCTAssertEqual(xrWaitFrame(session, &frameWaitInfo, &frameState), XR_SUCCESS)
+
+        var viewLocateInfo = XrViewLocateInfo()
+        viewLocateInfo.type = XR_TYPE_VIEW_LOCATE_INFO
+        viewLocateInfo.viewConfigurationType = XR_VIEW_CONFIGURATION_TYPE_PRIMARY_STEREO
+        viewLocateInfo.displayTime = frameState.predictedDisplayTime
+        viewLocateInfo.space = localSpace
+        var viewState = XrViewState()
+        viewState.type = XR_TYPE_VIEW_STATE
+        var locatedViewCount: UInt32 = 0
+        var views = [XrView(), XrView()]
+        views[0].type = XR_TYPE_VIEW
+        views[1].type = XR_TYPE_VIEW
+        let locateViewsResult = views.withUnsafeMutableBufferPointer { buffer in
+            xrLocateViews(session, &viewLocateInfo, &viewState, UInt32(buffer.count), &locatedViewCount, buffer.baseAddress)
+        }
+        XCTAssertEqual(locateViewsResult, XR_SUCCESS)
+        XCTAssertEqual(locatedViewCount, 2)
+        XCTAssertEqual(views[0].pose.position.y, 1.75, accuracy: 0.001)
+        XCTAssertEqual(views[1].pose.position.y, 1.75, accuracy: 0.001)
+        XCTAssertEqual(views[0].pose.position.x, 0.2 - 0.0226, accuracy: 0.0015)
+        XCTAssertEqual(views[1].pose.position.x, 0.2 + 0.0226, accuracy: 0.0015)
+        XCTAssertEqual(views[0].pose.position.z, -0.4 + 0.0226, accuracy: 0.0015)
+        XCTAssertEqual(views[1].pose.position.z, -0.4 - 0.0226, accuracy: 0.0015)
     }
 }

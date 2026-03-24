@@ -178,4 +178,27 @@ final class WireProtocolTests: XCTestCase {
             try BridgeUDPPacketEnvelope.encode(authToken: Data([0x01]), frameChunkPacket: Data([0xAA]))
         )
     }
+
+    func testTrackingStateStoreEncodesAndDecodesHeadPose() throws {
+        let pose = PosePayload(
+            timestampNs: 123_456_789,
+            positionMeters: [0.1, 1.7, -0.2],
+            orientationQuaternion: [0.0, 0.5, 0.0, 0.5]
+        )
+        let record = try TrackingStateStore.record(from: pose)
+        let encoded = TrackingStateStore.encode(record: record)
+        let decoded = TrackingStateStore.decode(encoded)
+
+        XCTAssertEqual(encoded.count, TrackingStateStore.encodedByteCount)
+        XCTAssertEqual(decoded?.updatedTimeNs, pose.timestampNs)
+        guard let decoded else {
+            return XCTFail("Expected tracking-state payload to decode")
+        }
+        XCTAssertEqual(Double(decoded.headPositionMeters.x), 0.1, accuracy: 0.0001)
+        XCTAssertEqual(Double(decoded.headPositionMeters.y), 1.7, accuracy: 0.0001)
+        XCTAssertEqual(Double(decoded.headPositionMeters.z), -0.2, accuracy: 0.0001)
+        XCTAssertEqual(Double(decoded.headOrientationQuaternion.y), 0.7071067, accuracy: 0.0001)
+        XCTAssertEqual(Double(decoded.headOrientationQuaternion.w), 0.7071067, accuracy: 0.0001)
+        XCTAssertTrue(TrackingStateStore.suggestedPath().path.hasSuffix("Library/Application Support/macVR/tracking-state-v1.bin"))
+    }
 }

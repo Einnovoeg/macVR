@@ -11,7 +11,7 @@ let releaseVersion: String = {
             .trimmingCharacters(in: .whitespacesAndNewlines),
         !raw.isEmpty
     else {
-        return "0.4.0"
+        return "0.5.0"
     }
     return raw
 }()

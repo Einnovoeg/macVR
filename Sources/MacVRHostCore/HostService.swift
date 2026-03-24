@@ -30,6 +30,7 @@ public final class HostService: @unchecked Sendable {
     private let logger: HostLogger
     private let registry = SessionRegistry()
     private let queue = DispatchQueue(label: "macvr.host.listener")
+    private let trackingStateStore: TrackingStateStore?
     private var listener: NWListener?
     private var activeConnections: [UUID: NWConnection] = [:]
 
@@ -44,6 +45,7 @@ public final class HostService: @unchecked Sendable {
         self.configuration = configuration
         self.bridgeFrameStore = bridgeFrameStore
         self.logger = logger
+        self.trackingStateStore = configuration.trackingStatePath.map { TrackingStateStore(path: URL(fileURLWithPath: $0)) }
     }
 
     public func start() throws {
@@ -319,6 +321,16 @@ public final class HostService: @unchecked Sendable {
         }
 
         registry.updatePose(payload, for: context.id)
+        if let trackingStateStore {
+            do {
+                // Persist the latest headset pose to the shared binary handoff so
+                // the OpenXR runtime can answer xrLocateSpace/xrLocateViews even
+                // when it is loaded in a separate process from the transport host.
+                try trackingStateStore.updateHeadPose(payload)
+            } catch {
+                logger.log(.warning, "Failed to persist tracking state: \(error.localizedDescription)")
+            }
+        }
     }
 
     private func handlePing(_ payload: PingPayload?, connection: NWConnection) {

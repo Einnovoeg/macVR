@@ -15,6 +15,7 @@ public struct RuntimeConfiguration: Sendable {
     public let maxPacketSize: Int
     public let bridgeMaxFrameAgeMs: Int
     public let jpegMaxBytes: Int
+    public let trackingStatePath: String
     public let verbose: Bool
 
     public init(
@@ -26,6 +27,7 @@ public struct RuntimeConfiguration: Sendable {
         maxPacketSize: Int = FrameChunkPacketizer.defaultMaxPacketSize,
         bridgeMaxFrameAgeMs: Int = 250,
         jpegMaxBytes: Int = 2_000_000,
+        trackingStatePath: String = TrackingStateStore.suggestedPath().path,
         verbose: Bool = false
     ) {
         self.controlPort = controlPort
@@ -36,6 +38,10 @@ public struct RuntimeConfiguration: Sendable {
         self.maxPacketSize = HostConfiguration.clampPacketSize(maxPacketSize)
         self.bridgeMaxFrameAgeMs = HostConfiguration.clampBridgeFrameAgeMs(bridgeMaxFrameAgeMs)
         self.jpegMaxBytes = Self.clampJPEGMaxBytes(jpegMaxBytes)
+        let trimmedTrackingStatePath = trackingStatePath.trimmingCharacters(in: .whitespacesAndNewlines)
+        self.trackingStatePath = trimmedTrackingStatePath.isEmpty
+            ? TrackingStateStore.suggestedPath().path
+            : trimmedTrackingStatePath
         self.verbose = verbose
     }
 
@@ -54,6 +60,7 @@ public struct RuntimeConfiguration: Sendable {
             bridgeMaxFrameAgeMs: bridgeMaxFrameAgeMs,
             displayID: nil,
             jpegQuality: 70,
+            trackingStatePath: trackingStatePath,
             verbose: verbose
         )
     }

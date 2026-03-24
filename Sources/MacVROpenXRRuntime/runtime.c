@@ -15,6 +15,11 @@
 #define MACVR_FRAME_PERIOD_NS 13888889LL
 #define MACVR_VIEW_COUNT 2
 #define MACVR_IPD_HALF_METERS 0.032f
+#define MACVR_TRACKING_STATE_PATH_ENV "MACVR_TRACKING_STATE_PATH"
+#define MACVR_TRACKING_STATE_MAGIC 0x4D545331u
+#define MACVR_TRACKING_STATE_VERSION 1u
+#define MACVR_TRACKING_STATE_STALE_NS 2000000000ULL
+#define MACVR_TRACKING_STATE_PATH_CAPACITY 1024
 
 struct MacVRPathEntry {
     XrPath id;
@@ -52,6 +57,23 @@ struct XrSpace_T {
     XrReferenceSpaceType type;
     XrPosef poseInReferenceSpace;
 };
+
+typedef struct MacVRTrackingStateV1 {
+    uint32_t magic;
+    uint32_t version;
+    uint64_t updatedTimeNs;
+    uint32_t flags;
+    uint32_t reserved0;
+    float headPosition[3];
+    float reserved1;
+    float headOrientation[4];
+} MacVRTrackingStateV1;
+
+/*
+ * The tracking-state file is a fixed-size binary blob written atomically by the
+ * Swift host/runtime layer. Keeping the layout simple lets the C runtime read it
+ * without a JSON parser or any allocator-heavy setup during xrLocateSpace.
+ */
 
 /*
  * Use a monotonic clock so frame timing and session-state events stay stable
@@ -150,6 +172,147 @@ static bool macvrGetViewConfigurationArray(
         views[index].maxSwapchainSampleCount = 1;
     }
     return true;
+}
+
+static void macvrSetFallbackHeadPose(XrPosef *pose) {
+    if (pose == NULL) {
+        return;
+    }
+    pose->orientation.x = 0.0f;
+    pose->orientation.y = 0.0f;
+    pose->orientation.z = 0.0f;
+    pose->orientation.w = 1.0f;
+    pose->position.x = 0.0f;
+    pose->position.y = 1.6f;
+    pose->position.z = 0.0f;
+}
+
+static void macvrResolveTrackingStatePath(char *buffer, size_t capacity) {
+    if (buffer == NULL || capacity == 0) {
+        return;
+    }
+
+    const char *environmentPath = getenv(MACVR_TRACKING_STATE_PATH_ENV);
+    if (environmentPath != NULL && environmentPath[0] != '\0') {
+        macvrCopyString(buffer, capacity, environmentPath);
+        return;
+    }
+
+    const char *homeDirectory = getenv("HOME");
+    if (homeDirectory == NULL || homeDirectory[0] == '\0') {
+        buffer[0] = '\0';
+        return;
+    }
+
+    snprintf(
+        buffer,
+        capacity,
+        "%s/Library/Application Support/macVR/tracking-state-v1.bin",
+        homeDirectory
+    );
+}
+
+/*
+ * Treat the tracking handoff as optional and fail closed: if the file is absent,
+ * malformed, or too old, the runtime falls back to the deterministic synthetic
+ * head pose instead of returning partially trusted data to the OpenXR caller.
+ */
+static bool macvrLoadTrackingState(MacVRTrackingStateV1 *state) {
+    if (state == NULL) {
+        return false;
+    }
+
+    char path[MACVR_TRACKING_STATE_PATH_CAPACITY];
+    macvrResolveTrackingStatePath(path, sizeof(path));
+    if (path[0] == '\0') {
+        return false;
+    }
+
+    FILE *file = fopen(path, "rb");
+    if (file == NULL) {
+        return false;
+    }
+
+    MacVRTrackingStateV1 loaded;
+    memset(&loaded, 0, sizeof(loaded));
+    size_t bytesRead = fread(&loaded, 1, sizeof(loaded), file);
+    fclose(file);
+
+    if (bytesRead != sizeof(loaded)) {
+        return false;
+    }
+    if (loaded.magic != MACVR_TRACKING_STATE_MAGIC || loaded.version != MACVR_TRACKING_STATE_VERSION) {
+        return false;
+    }
+    if ((loaded.flags & 0x1u) == 0) {
+        return false;
+    }
+    uint64_t nowNs = macvrNowNs();
+    if (loaded.updatedTimeNs > nowNs || nowNs - loaded.updatedTimeNs > MACVR_TRACKING_STATE_STALE_NS) {
+        return false;
+    }
+
+    *state = loaded;
+    return true;
+}
+
+static XrVector3f macvrRotateVector(const XrQuaternionf *quaternion, XrVector3f vector) {
+    XrVector3f qVector = { quaternion->x, quaternion->y, quaternion->z };
+    XrVector3f uv = {
+        qVector.y * vector.z - qVector.z * vector.y,
+        qVector.z * vector.x - qVector.x * vector.z,
+        qVector.x * vector.y - qVector.y * vector.x,
+    };
+    XrVector3f uuv = {
+        qVector.y * uv.z - qVector.z * uv.y,
+        qVector.z * uv.x - qVector.x * uv.z,
+        qVector.x * uv.y - qVector.y * uv.x,
+    };
+
+    uv.x *= 2.0f * quaternion->w;
+    uv.y *= 2.0f * quaternion->w;
+    uv.z *= 2.0f * quaternion->w;
+    uuv.x *= 2.0f;
+    uuv.y *= 2.0f;
+    uuv.z *= 2.0f;
+
+    XrVector3f rotated = {
+        vector.x + uv.x + uuv.x,
+        vector.y + uv.y + uuv.y,
+        vector.z + uv.z + uuv.z,
+    };
+    return rotated;
+}
+
+/*
+ * `xrLocateSpace` wants the head pose itself, while `xrLocateViews` wants eye
+ * poses. Split the helpers so the per-eye offset stays isolated from the shared
+ * head transform and the file format can remain headset-centric.
+ */
+static void macvrApplyTrackingPose(XrPosef *pose, const MacVRTrackingStateV1 *state) {
+    if (pose == NULL || state == NULL) {
+        return;
+    }
+    pose->orientation.x = state->headOrientation[0];
+    pose->orientation.y = state->headOrientation[1];
+    pose->orientation.z = state->headOrientation[2];
+    pose->orientation.w = state->headOrientation[3];
+    pose->position.x = state->headPosition[0];
+    pose->position.y = state->headPosition[1];
+    pose->position.z = state->headPosition[2];
+}
+
+static void macvrApplyTrackingViewPose(XrPosef *pose, const MacVRTrackingStateV1 *state, uint32_t index) {
+    macvrApplyTrackingPose(pose, state);
+    XrVector3f localEyeOffset = {
+        index == 0 ? -MACVR_IPD_HALF_METERS : MACVR_IPD_HALF_METERS,
+        0.0f,
+        0.0f,
+    };
+    XrVector3f rotatedEyeOffset = macvrRotateVector(&pose->orientation, localEyeOffset);
+    pose->position.x += rotatedEyeOffset.x;
+    pose->position.y += rotatedEyeOffset.y;
+    pose->position.z += rotatedEyeOffset.z;
 }
 
 /*
@@ -629,13 +792,13 @@ XRAPI_ATTR XrResult XRAPI_CALL xrLocateSpace(
         XR_SPACE_LOCATION_ORIENTATION_VALID_BIT |
         XR_SPACE_LOCATION_POSITION_TRACKED_BIT |
         XR_SPACE_LOCATION_ORIENTATION_TRACKED_BIT;
-    location->pose.orientation.x = 0.0f;
-    location->pose.orientation.y = 0.0f;
-    location->pose.orientation.z = 0.0f;
-    location->pose.orientation.w = 1.0f;
-    location->pose.position.x = 0.0f;
-    location->pose.position.y = 1.6f;
-    location->pose.position.z = 0.0f;
+
+    MacVRTrackingStateV1 trackingState;
+    if (macvrLoadTrackingState(&trackingState)) {
+        macvrApplyTrackingPose(&location->pose, &trackingState);
+    } else {
+        macvrSetFallbackHeadPose(&location->pose);
+    }
     (void)space;
     (void)baseSpace;
     return XR_SUCCESS;
@@ -826,17 +989,21 @@ XRAPI_ATTR XrResult XRAPI_CALL xrLocateViews(
     for (uint32_t index = 0; index < MACVR_VIEW_COUNT; ++index) {
         views[index].type = XR_TYPE_VIEW;
         views[index].next = NULL;
-        views[index].pose.orientation.x = 0.0f;
-        views[index].pose.orientation.y = 0.0f;
-        views[index].pose.orientation.z = 0.0f;
-        views[index].pose.orientation.w = 1.0f;
-        views[index].pose.position.x = index == 0 ? -MACVR_IPD_HALF_METERS : MACVR_IPD_HALF_METERS;
-        views[index].pose.position.y = 1.6f;
-        views[index].pose.position.z = 0.0f;
         views[index].fov.angleLeft = -0.90f;
         views[index].fov.angleRight = 0.90f;
         views[index].fov.angleUp = 0.90f;
         views[index].fov.angleDown = -0.90f;
+    }
+
+    MacVRTrackingStateV1 trackingState;
+    bool hasTrackingState = macvrLoadTrackingState(&trackingState);
+    for (uint32_t index = 0; index < MACVR_VIEW_COUNT; ++index) {
+        if (hasTrackingState) {
+            macvrApplyTrackingViewPose(&views[index].pose, &trackingState, index);
+        } else {
+            macvrSetFallbackHeadPose(&views[index].pose);
+            views[index].pose.position.x += index == 0 ? -MACVR_IPD_HALF_METERS : MACVR_IPD_HALF_METERS;
+        }
     }
 
     return XR_SUCCESS;

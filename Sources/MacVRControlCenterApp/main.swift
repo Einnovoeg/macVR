@@ -18,6 +18,7 @@ final class ControlCenterModel: ObservableObject {
     @Published var maxPacketSize = "1200"
     @Published var bridgeMaxFrameAgeMs = "250"
     @Published var jpegMaxBytes = "2000000"
+    @Published var trackingStatePath = OpenXRRuntimeManifest.suggestedTrackingStatePath()
     @Published var manifestPath = OpenXRRuntimeManifest.suggestedManifestPath().path
     @Published var runtimeLibraryPath = OpenXRRuntimeManifest.suggestedRuntimeLibraryPath()
     @Published var errorMessage: String?
@@ -189,6 +190,10 @@ final class ControlCenterModel: ObservableObject {
         let parsedPacketSize = try parseInt(maxPacketSize, field: "Max packet size", range: 512...65_507)
         let parsedBridgeAge = try parseInt(bridgeMaxFrameAgeMs, field: "Bridge max frame age", range: 0...10_000)
         let parsedJPEGMaxBytes = try parseInt(jpegMaxBytes, field: "JPEG max bytes", range: 16_384...16_000_000)
+        let trimmedTrackingStatePath = trackingStatePath.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedTrackingStatePath.isEmpty else {
+            throw NSError(domain: "macVR.ControlCenter", code: 4, userInfo: [NSLocalizedDescriptionKey: "Tracking state path cannot be empty"])
+        }
 
         let trimmedFrameTag = frameTag.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedFrameTag.isEmpty else {
@@ -204,6 +209,7 @@ final class ControlCenterModel: ObservableObject {
             maxPacketSize: parsedPacketSize,
             bridgeMaxFrameAgeMs: parsedBridgeAge,
             jpegMaxBytes: parsedJPEGMaxBytes,
+            trackingStatePath: trimmedTrackingStatePath,
             verbose: true
         )
     }
@@ -512,6 +518,12 @@ struct ContentView: View {
                         title: "JPEG Max Bytes",
                         value: $model.jpegMaxBytes,
                         helpText: "Upper limit for a single local JPEG frame submitted to the runtime.",
+                        disabled: model.isRunning
+                    )
+                    PortField(
+                        title: "Tracking State Path",
+                        value: $model.trackingStatePath,
+                        helpText: "Binary pose handoff file written by the runtime so the OpenXR shim can read the newest tracked head pose across processes.",
                         disabled: model.isRunning
                     )
                 }

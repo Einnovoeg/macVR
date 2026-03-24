@@ -2,7 +2,7 @@
 
 `macVR` is an experimental macOS VR runtime toolkit. It now ships a bundled native runtime service, an experimental OpenXR runtime shim, a graphical macOS control center, a graphical macOS viewer/receiver, and the bridge ingest tools needed to feed external renderers into the transport stack.
 
-Current release: `0.4.0`
+Current release: `0.5.0`
 
 This project is still experimental, but the current release is no longer limited to CLI-only transport probes. It includes:
 
@@ -23,6 +23,7 @@ Support the project: [buymeacoffee.com/einnovoeg](https://buymeacoffee.com/einno
 - Captures the live macOS desktop directly into the runtime with `macvr-capture-sender`.
 - Connects to the runtime or host with `macvr-viewer` and renders a live stereo preview of the received stream.
 - Generates an OpenXR runtime manifest that points to the included experimental runtime shim.
+- Writes the latest client head pose into a shared binary tracking-state file so the OpenXR shim can answer pose queries from a separate loader-driven process.
 - Ships graphical control center and viewer apps for runtime management and live transport validation.
 
 ## Included Tools
@@ -109,12 +110,22 @@ Or launch the bundled runtime directly:
 swift run macvr-runtime --verbose
 ```
 
+The bundled runtime writes the latest tracked head pose to `~/Library/Application Support/macVR/tracking-state-v1.bin` by default. The OpenXR shim reads the same path, or the path provided through `MACVR_TRACKING_STATE_PATH`.
+
 Write an OpenXR manifest that points to the local build output:
 
 ```bash
 swift run macvr-runtime \
   --write-openxr-manifest "$HOME/.config/openxr/1/active_runtime.json" \
   --manifest-only
+```
+
+Write tracking state to a custom location during testing:
+
+```bash
+swift run macvr-runtime \
+  --tracking-state-path /tmp/macvr-tracking-state.bin \
+  --verbose
 ```
 
 ### Runtime Smoke Test With Live Display Capture And GUI Receive
@@ -277,10 +288,10 @@ wine64 "$PWD/.build/win/macvr-jpeg-sender.exe" \
 
 ## Versioning
 
-- Project release version: `0.4.0`
+- Project release version: `0.5.0`
 - Wire protocol version: `1`
 - Changelog: [CHANGELOG.md](CHANGELOG.md)
-- Release notes: [docs/releases/v0.4.0.md](docs/releases/v0.4.0.md)
+- Release notes: [docs/releases/v0.5.0.md](docs/releases/v0.5.0.md)
 - Release packager: `scripts/release/build-release.sh`
 
 ## Licensing And Credits

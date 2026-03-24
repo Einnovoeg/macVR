@@ -4,6 +4,28 @@ All notable changes to this project will be documented in this file.
 
 The format is based on Keep a Changelog, and this project uses Semantic Versioning for public releases.
 
+## [0.5.0] - 2026-03-23
+
+### Added
+
+- Binary tracking-state handoff in `MacVRHostCore` so the bundled runtime and standalone host can persist the latest validated head pose for the OpenXR runtime shim.
+- `macvr-runtime --tracking-state-path` and `macvr-host --tracking-state-path` for explicit pose-handoff file control during testing and packaging.
+- OpenXR integration coverage that verifies `xrLocateSpace` and `xrLocateViews` consume the tracking-state file instead of always returning the synthetic fallback pose.
+
+### Changed
+
+- Promoted the public release line from `0.4.0` to `0.5.0` to reflect transport-driven head tracking reaching the shipped OpenXR runtime path.
+- Normalized incoming pose quaternions before writing tracking-state snapshots so OpenXR callers receive unit-orientation data even if a client sends approximate values.
+- Updated the viewer and CLI client synthetic pose generators to emit proper yaw quaternions instead of denormalized placeholder values.
+- Expanded the README quick start to document the tracking-state path and `MACVR_TRACKING_STATE_PATH` override.
+- Release packaging now stages the raw `macvr-control-center` executable in `dist/.../bin/` alongside the packaged `.app` bundles.
+
+### Fixed
+
+- Fixed build failures caused by app-target references to host-core tracking helpers without the correct dependency boundary.
+- Fixed runtime pose handoff so the OpenXR shim can answer view and space location calls from live transport data instead of only a hard-coded head pose.
+- Verified a live runtime + viewer smoke flow that writes the tracking-state file at the configured path.
+
 ## [0.4.0] - 2026-03-23
 
 ### Added

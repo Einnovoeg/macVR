@@ -34,6 +34,7 @@ private struct CLIOptions {
     var maxPacketSize = 1200
     var bridgeMaxFrameAgeMs = 250
     var jpegMaxBytes = 2_000_000
+    var trackingStatePath = OpenXRRuntimeManifest.suggestedTrackingStatePath()
     var statusIntervalSeconds: Double = 5
     var manifestPath: String?
     var runtimeLibraryPath: String?
@@ -50,6 +51,7 @@ private struct CLIOptions {
       --max-packet-size <n>          Max UDP packet size, 512-65507 (default: 1200)
       --bridge-max-frame-age-ms <m>  Drop stale bridge frames after ms, 0-10000 (default: 250)
       --jpeg-max-bytes <n>           Max accepted local JPEG size, 16384-16000000 (default: 2000000)
+      --tracking-state-path <path>   Binary tracking-state output path (default: ~/Library/Application Support/macVR/tracking-state-v1.bin)
       --status-interval <seconds>    Periodic status log interval, 0 disables (default: 5)
       --write-openxr-manifest <p>    Write runtime manifest JSON to the given path
       --runtime-library <path>       Override runtime library path used in the manifest
@@ -122,6 +124,12 @@ private struct CLIOptions {
                     throw CLIError.invalidValue("Invalid jpeg-max-bytes: \(value)")
                 }
                 options.jpegMaxBytes = jpegMaxBytes
+            case "--tracking-state-path":
+                let value = try requireValue(arg).trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !value.isEmpty else {
+                    throw CLIError.invalidValue("tracking-state-path cannot be empty")
+                }
+                options.trackingStatePath = value
             case "--status-interval":
                 let value = try requireValue(arg)
                 guard let seconds = Double(value), seconds >= 0 else {
@@ -181,6 +189,7 @@ struct MacVRRuntimeApp {
                 maxPacketSize: cli.maxPacketSize,
                 bridgeMaxFrameAgeMs: cli.bridgeMaxFrameAgeMs,
                 jpegMaxBytes: cli.jpegMaxBytes,
+                trackingStatePath: cli.trackingStatePath,
                 verbose: cli.verbose
             )
             let runtime = RuntimeService(configuration: configuration)
@@ -229,6 +238,7 @@ struct MacVRRuntimeApp {
 
             print("macvr-runtime \(macVRReleaseVersion) running")
             print("OpenXR manifest hint: \(OpenXRRuntimeManifest.suggestedManifestPath().path)")
+            print("Tracking state hint: \(configuration.trackingStatePath)")
             print("Press Ctrl+C to stop")
             RunLoop.main.run()
 

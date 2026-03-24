@@ -163,6 +163,7 @@ public final class RuntimeService: @unchecked Sendable {
             .info,
             "Bundled runtime ready: control=\(configuration.controlPort), bridge=\(configuration.bridgePort), jpeg-input=\(configuration.jpegInputPort)"
         )
+        logger.log(.info, "Tracking state path: \(configuration.trackingStatePath)")
     }
 
     public func stop() {

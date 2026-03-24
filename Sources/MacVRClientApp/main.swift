@@ -597,12 +597,13 @@ private final class MacVRClient: @unchecked Sendable {
     private func sendSyntheticPose() {
         let nowNs = DispatchTime.now().uptimeNanoseconds
         let phase = Double(nowNs % 10_000_000_000) / 10_000_000_000.0
-        let yaw = sin(phase * .pi * 2.0) * 0.05
+        let yawAngle = sin(phase * .pi * 2.0) * 0.10
+        let halfYaw = yawAngle * 0.5
 
         let pose = PosePayload(
             timestampNs: nowNs,
             positionMeters: [0.0, 1.6, 0.0],
-            orientationQuaternion: [0.0, yaw, 0.0, 1.0]
+            orientationQuaternion: [0.0, sin(halfYaw), 0.0, cos(halfYaw)]
         )
         sendControl(ClientControlMessage.pose(pose))
     }

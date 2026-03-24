@@ -35,6 +35,7 @@ private struct CLIOptions {
     var bridgeMaxFrameAgeMs = 250
     var displayID: UInt32?
     var jpegQuality = 70
+    var trackingStatePath: String?
     var listDisplays = false
     var verbose = false
 
@@ -50,6 +51,8 @@ private struct CLIOptions {
                               Max accepted age for bridge frames before drop, 0-10000 (default: 250, 0=disable)
       --display-id <id>       Optional display ID to capture (default: main display)
       --jpeg-quality <1-100>  JPEG quality for display-jpeg mode (default: 70)
+      --tracking-state-path <path>
+                              Optional binary tracking-state output path for OpenXR pose handoff
       --list-displays         Print available display IDs and exit
       --version               Show build/release version
       --verbose               Enable debug logging
@@ -145,6 +148,16 @@ private struct CLIOptions {
                     throw CLIError.invalidValue("Invalid jpeg quality: \(arguments[index])")
                 }
                 options.jpegQuality = value
+            case "--tracking-state-path":
+                index += 1
+                guard index < arguments.count else {
+                    throw CLIError.missingValue(arg)
+                }
+                let value = arguments[index].trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !value.isEmpty else {
+                    throw CLIError.invalidValue("tracking-state-path cannot be empty")
+                }
+                options.trackingStatePath = value
             case "--list-displays":
                 options.listDisplays = true
             case "--version":
@@ -195,6 +208,7 @@ struct MacVRHostApp {
                 bridgeMaxFrameAgeMs: cli.bridgeMaxFrameAgeMs,
                 displayID: cli.displayID,
                 jpegQuality: cli.jpegQuality,
+                trackingStatePath: cli.trackingStatePath,
                 verbose: cli.verbose
             )
             let logger = HostLogger(verbose: cli.verbose)

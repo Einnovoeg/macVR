@@ -1,4 +1,5 @@
 import Foundation
+import MacVRHostCore
 import MacVRProtocol
 
 /// Generates a loader manifest for the experimental OpenXR runtime shim that ships
@@ -29,6 +30,12 @@ public enum OpenXRRuntimeManifest {
             .appendingPathComponent("openxr", isDirectory: true)
             .appendingPathComponent("1", isDirectory: true)
             .appendingPathComponent("active_runtime.json", isDirectory: false)
+    }
+
+    public static func suggestedTrackingStatePath(
+        homeDirectory: URL = FileManager.default.homeDirectoryForCurrentUser
+    ) -> String {
+        TrackingStateStore.suggestedPath(homeDirectory: homeDirectory).path
     }
 
     /// Resolve the runtime library next to whichever executable is currently

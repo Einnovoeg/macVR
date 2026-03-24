@@ -12,6 +12,7 @@ public struct HostConfiguration: Sendable {
     public let bridgeMaxFrameAgeMs: Int
     public let displayID: UInt32?
     public let jpegQuality: Int
+    public let trackingStatePath: String?
     public let verbose: Bool
 
     public init(
@@ -24,6 +25,7 @@ public struct HostConfiguration: Sendable {
         bridgeMaxFrameAgeMs: Int = 250,
         displayID: UInt32? = nil,
         jpegQuality: Int = 70,
+        trackingStatePath: String? = nil,
         verbose: Bool = false
     ) {
         self.controlPort = controlPort
@@ -35,6 +37,8 @@ public struct HostConfiguration: Sendable {
         self.bridgeMaxFrameAgeMs = Self.clampBridgeFrameAgeMs(bridgeMaxFrameAgeMs)
         self.displayID = displayID
         self.jpegQuality = Self.clampJPEGQuality(jpegQuality)
+        let trimmedTrackingStatePath = trackingStatePath?.trimmingCharacters(in: .whitespacesAndNewlines)
+        self.trackingStatePath = trimmedTrackingStatePath?.isEmpty == false ? trimmedTrackingStatePath : nil
         self.verbose = verbose
     }
 
