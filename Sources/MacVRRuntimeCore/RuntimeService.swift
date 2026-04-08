@@ -27,11 +27,16 @@ public struct RuntimeStatusSnapshot: Sendable {
     public let controlPort: UInt16
     public let bridgePort: UInt16
     public let jpegInputPort: UInt16
+    public let discoveryPort: UInt16
     public let inputConnectionCount: Int
     public let inputFramesAccepted: UInt64
     public let inputFramesDropped: UInt64
     public let inputBytesAccepted: UInt64
     public let lastInputResolution: String?
+    public let requireTrustedClients: Bool
+    public let autoTrustLoopbackClients: Bool
+    public let trustedClientCount: Int
+    public let deniedUntrustedClientCount: UInt64
     public let bridgeStats: BridgeFrameStats
 
     public init(
@@ -41,11 +46,16 @@ public struct RuntimeStatusSnapshot: Sendable {
         controlPort: UInt16,
         bridgePort: UInt16,
         jpegInputPort: UInt16,
+        discoveryPort: UInt16,
         inputConnectionCount: Int,
         inputFramesAccepted: UInt64,
         inputFramesDropped: UInt64,
         inputBytesAccepted: UInt64,
         lastInputResolution: String?,
+        requireTrustedClients: Bool,
+        autoTrustLoopbackClients: Bool,
+        trustedClientCount: Int,
+        deniedUntrustedClientCount: UInt64,
         bridgeStats: BridgeFrameStats
     ) {
         self.isRunning = isRunning
@@ -54,11 +64,16 @@ public struct RuntimeStatusSnapshot: Sendable {
         self.controlPort = controlPort
         self.bridgePort = bridgePort
         self.jpegInputPort = jpegInputPort
+        self.discoveryPort = discoveryPort
         self.inputConnectionCount = inputConnectionCount
         self.inputFramesAccepted = inputFramesAccepted
         self.inputFramesDropped = inputFramesDropped
         self.inputBytesAccepted = inputBytesAccepted
         self.lastInputResolution = lastInputResolution
+        self.requireTrustedClients = requireTrustedClients
+        self.autoTrustLoopbackClients = autoTrustLoopbackClients
+        self.trustedClientCount = trustedClientCount
+        self.deniedUntrustedClientCount = deniedUntrustedClientCount
         self.bridgeStats = bridgeStats
     }
 
@@ -70,11 +85,16 @@ public struct RuntimeStatusSnapshot: Sendable {
             controlPort: configuration.controlPort,
             bridgePort: configuration.bridgePort,
             jpegInputPort: configuration.jpegInputPort,
+            discoveryPort: configuration.discoveryPort,
             inputConnectionCount: 0,
             inputFramesAccepted: 0,
             inputFramesDropped: 0,
             inputBytesAccepted: 0,
             lastInputResolution: nil,
+            requireTrustedClients: configuration.requireTrustedClients,
+            autoTrustLoopbackClients: configuration.autoTrustLoopbackClients,
+            trustedClientCount: 0,
+            deniedUntrustedClientCount: 0,
             bridgeStats: BridgeFrameStats(totalFrames: 0, totalBytes: 0, lastFrameIndex: nil, lastSource: nil)
         )
     }
@@ -93,6 +113,8 @@ public final class RuntimeService: @unchecked Sendable {
 
     private var hostService: HostService?
     private var bridgeIngestService: BridgeIngestService?
+    private var discoveryService: RuntimeDiscoveryService?
+    private var trustPolicy: RuntimeTrustPolicy?
     private var inputListener: NWListener?
     private var inputConnections: [ObjectIdentifier: NWConnection] = [:]
     private var inputBuffers: [ObjectIdentifier: Data] = [:]
@@ -120,15 +142,29 @@ public final class RuntimeService: @unchecked Sendable {
         guard configuration.jpegInputPort > 0 else {
             throw RuntimeServiceError.invalidPort(configuration.jpegInputPort)
         }
+        guard configuration.discoveryPort > 0 else {
+            throw RuntimeServiceError.invalidPort(configuration.discoveryPort)
+        }
 
         if snapshotRunningState() {
             return
         }
 
+        let trustedClientStore = TrustedClientStore(path: configuration.trustedClientsPath)
+        let trustPolicy = RuntimeTrustPolicy(
+            requireTrustedClients: configuration.requireTrustedClients,
+            autoTrustLoopbackClients: configuration.autoTrustLoopbackClients,
+            trustedClientStore: trustedClientStore,
+            logger: logger
+        )
+
         let host = try HostService(
             configuration: configuration.hostConfiguration,
             logger: logger,
-            bridgeFrameStore: bridgeFrameStore
+            bridgeFrameStore: bridgeFrameStore,
+            clientAuthorizer: { identity in
+                trustPolicy.authorize(identity)
+            }
         )
         let bridgeIngest = try BridgeIngestService(
             port: configuration.bridgePort,
@@ -136,9 +172,11 @@ public final class RuntimeService: @unchecked Sendable {
             frameStore: bridgeFrameStore,
             logger: logger
         )
+        let discovery = RuntimeDiscoveryService(configuration: configuration, logger: logger)
 
         do {
             try bridgeIngest.start()
+            try discovery.start()
             try startJPEGInputListener()
             try host.start()
         } catch {
@@ -149,6 +187,8 @@ public final class RuntimeService: @unchecked Sendable {
         stateLock.lock()
         hostService = host
         bridgeIngestService = bridgeIngest
+        discoveryService = discovery
+        self.trustPolicy = trustPolicy
         inputFramesAccepted = 0
         inputFramesDropped = 0
         inputBytesAccepted = 0
@@ -163,6 +203,10 @@ public final class RuntimeService: @unchecked Sendable {
             .info,
             "Bundled runtime ready: control=\(configuration.controlPort), bridge=\(configuration.bridgePort), jpeg-input=\(configuration.jpegInputPort)"
         )
+        logger.log(
+            .info,
+            "Trust mode: requireTrustedClients=\(configuration.requireTrustedClients), autoTrustLoopbackClients=\(configuration.autoTrustLoopbackClients), trustedClientsPath=\(configuration.trustedClientsPath)"
+        )
         logger.log(.info, "Tracking state path: \(configuration.trackingStatePath)")
     }
 
@@ -173,12 +217,50 @@ public final class RuntimeService: @unchecked Sendable {
             self.stateLock.lock()
             self.hostService = nil
             self.bridgeIngestService = nil
+            self.trustPolicy = nil
             self.isRunning = false
             self.startedAt = nil
             self.stateLock.unlock()
             semaphore.signal()
         }
         semaphore.wait()
+    }
+
+    public func trustedClients() -> [TrustedClientRecord] {
+        stateLock.lock()
+        let activeTrustPolicy = trustPolicy
+        stateLock.unlock()
+
+        if let activeTrustPolicy {
+            return activeTrustPolicy.trustedClients()
+        }
+        return TrustedClientStore(path: configuration.trustedClientsPath).trustedClients()
+    }
+
+    @discardableResult
+    public func trustClient(clientName: String, host: String, note: String? = nil) throws -> TrustedClientRecord {
+        stateLock.lock()
+        let activeTrustPolicy = trustPolicy
+        stateLock.unlock()
+
+        if let activeTrustPolicy {
+            return try activeTrustPolicy.trust(clientName: clientName, host: host, note: note)
+        }
+        let store = TrustedClientStore(path: configuration.trustedClientsPath)
+        return try store.trust(clientName: clientName, host: host, note: note)
+    }
+
+    @discardableResult
+    public func untrustClient(clientName: String, host: String) throws -> Bool {
+        stateLock.lock()
+        let activeTrustPolicy = trustPolicy
+        stateLock.unlock()
+
+        if let activeTrustPolicy {
+            return try activeTrustPolicy.untrust(clientName: clientName, host: host)
+        }
+        let store = TrustedClientStore(path: configuration.trustedClientsPath)
+        return try store.untrust(clientName: clientName, host: host)
     }
 
     public func statusSnapshot() -> RuntimeStatusSnapshot {
@@ -191,6 +273,7 @@ public final class RuntimeService: @unchecked Sendable {
         let inputBytesAccepted = self.inputBytesAccepted
         let lastInputWidth = self.lastInputWidth
         let lastInputHeight = self.lastInputHeight
+        let activeTrustPolicy = self.trustPolicy
         stateLock.unlock()
 
         let bridgeStats = bridgeFrameStore.stats()
@@ -208,6 +291,10 @@ public final class RuntimeService: @unchecked Sendable {
             resolutionSummary = nil
         }
 
+        let trustedClientCount = activeTrustPolicy?.trustedClientCount()
+            ?? TrustedClientStore(path: configuration.trustedClientsPath).trustedClientCount()
+        let deniedUntrustedClientCount = activeTrustPolicy?.deniedCount() ?? 0
+
         return RuntimeStatusSnapshot(
             isRunning: isRunning,
             startedAt: startedAt,
@@ -215,11 +302,16 @@ public final class RuntimeService: @unchecked Sendable {
             controlPort: configuration.controlPort,
             bridgePort: configuration.bridgePort,
             jpegInputPort: configuration.jpegInputPort,
+            discoveryPort: configuration.discoveryPort,
             inputConnectionCount: inputConnectionCount,
             inputFramesAccepted: inputFramesAccepted,
             inputFramesDropped: inputFramesDropped,
             inputBytesAccepted: inputBytesAccepted,
             lastInputResolution: resolutionSummary,
+            requireTrustedClients: configuration.requireTrustedClients,
+            autoTrustLoopbackClients: configuration.autoTrustLoopbackClients,
+            trustedClientCount: trustedClientCount,
+            deniedUntrustedClientCount: deniedUntrustedClientCount,
             bridgeStats: bridgeStats
         )
     }
@@ -251,6 +343,9 @@ public final class RuntimeService: @unchecked Sendable {
     }
 
     private func stopNetworkComponents() {
+        discoveryService?.stop()
+        discoveryService = nil
+
         inputListener?.cancel()
         inputListener = nil
 

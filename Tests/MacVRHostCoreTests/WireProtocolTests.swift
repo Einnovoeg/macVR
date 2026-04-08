@@ -179,6 +179,35 @@ final class WireProtocolTests: XCTestCase {
         )
     }
 
+    func testRuntimeDiscoveryProtocolRoundTrip() throws {
+        let probe = RuntimeDiscoveryProbe(
+            requestID: "probe-123",
+            clientName: "macvr-viewer",
+            requestedStreamMode: .bridgeJPEG
+        )
+        let encodedProbe = try WireCodec.encode(probe)
+        let decodedProbe = try WireCodec.decode(RuntimeDiscoveryProbe.self, from: encodedProbe)
+        XCTAssertEqual(decodedProbe.requestID, "probe-123")
+        XCTAssertEqual(decodedProbe.clientName, "macvr-viewer")
+        XCTAssertEqual(decodedProbe.requestedStreamMode, .bridgeJPEG)
+
+        let announcement = RuntimeDiscoveryAnnouncement(
+            requestID: "probe-123",
+            serverName: "macVR Runtime",
+            controlPort: 42000,
+            bridgePort: 43000,
+            jpegInputPort: 44000,
+            supportedStreamModes: [.bridgeJPEG, .mock],
+            message: "runtime available"
+        )
+        let encodedAnnouncement = try WireCodec.encode(announcement)
+        let decodedAnnouncement = try WireCodec.decode(RuntimeDiscoveryAnnouncement.self, from: encodedAnnouncement)
+        XCTAssertEqual(decodedAnnouncement.requestID, "probe-123")
+        XCTAssertEqual(decodedAnnouncement.serverName, "macVR Runtime")
+        XCTAssertEqual(decodedAnnouncement.controlPort, 42000)
+        XCTAssertEqual(decodedAnnouncement.supportedStreamModes, [.bridgeJPEG, .mock])
+    }
+
     func testTrackingStateStoreEncodesAndDecodesHeadPose() throws {
         let pose = PosePayload(
             timestampNs: 123_456_789,

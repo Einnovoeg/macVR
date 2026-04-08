@@ -4,6 +4,62 @@ All notable changes to this project will be documented in this file.
 
 The format is based on Keep a Changelog, and this project uses Semantic Versioning for public releases.
 
+## [0.7.0] - 2026-04-08
+
+### Added
+
+- Trusted-client persistence in `MacVRRuntimeCore` via `TrustedClientStore` with JSON-backed allowlist entries.
+- Runtime trust-policy enforcement (`RuntimeTrustPolicy`) that can require explicit trust before a client hello handshake is accepted.
+- Host-core authorization seam (`ClientIdentity`, `ClientAuthorizationDecision`, and `HostClientAuthorizer`) so runtime policy can gate session startup.
+- Runtime CLI trust-management commands:
+  - `--require-trusted-clients`
+  - `--no-auto-trust-loopback`
+  - `--trusted-clients-path`
+  - `--trust-client <client@host>`
+  - `--untrust-client <client@host>`
+  - `--list-trusted-clients`
+- Control-center trusted-client GUI workflow with hover-tooltips on all new controls:
+  - strict-trust toggles
+  - trusted-clients path field
+  - add/remove trusted-client entry management
+- Runtime integration tests covering trusted-client store persistence and strict-trust policy decisions.
+
+### Changed
+
+- Promoted the public release line from `0.6.0` to `0.7.0`.
+- Expanded runtime status snapshots and periodic CLI status lines to include trusted-client inventory and denied-untrusted counts.
+- Updated viewer stream-state handling so server error messages surface clearly in the GUI state panel.
+- Updated README quick-start documentation with trusted-client policy usage and trust-store management examples.
+
+### Fixed
+
+- Fixed trusted-client JSON reload behavior by aligning date decoding with the persisted ISO-8601 encoding strategy.
+- Verified clean `swift build` and `swift test` with strict trust-path code included in default targets.
+
+## [0.6.0] - 2026-04-07
+
+### Added
+
+- ALVR-style UDP runtime discovery protocol (`RuntimeDiscoveryProbe` and `RuntimeDiscoveryAnnouncement`) in `MacVRProtocol`.
+- Runtime discovery listener in `macvr-runtime` with configurable `--discovery-port` and `--server-name`.
+- Viewer-side discovery client and GUI controls to discover runtimes and apply discovered host/port values without manual entry.
+- Discovery protocol coverage in wire tests and a runtime integration test that verifies a live discovery reply path.
+- Packaged app icon asset (`assets/macvr.icns`) and release bundling support so GUI apps ship with a visible icon.
+- Continuity file `AGENTS.md` for future agent handoff.
+
+### Changed
+
+- Promoted the public release line from `0.5.0` to `0.6.0`.
+- Moved incomplete runtime-core tracking plugin experiments out of `Sources/MacVRRuntimeCore/` so the default build remains stable.
+- Updated release packager Info.plist generation to include `CFBundleIconFile` and stage icon resources for both GUI apps.
+- Refined runtime and viewer network host-string decoding to avoid deprecated `String(cString:)` usage.
+- Renamed `Sources/MacVRViewerApp/main.swift` to `Sources/MacVRViewerApp/ViewerApp.swift` to keep SwiftPM entrypoint behavior stable once multiple viewer source files are present.
+
+### Fixed
+
+- Restored clean `swift build` and `swift test` execution after discovery and viewer changes.
+- Verified end-to-end runtime/viewer streaming with discovery listener active and live JPEG frame ingress.
+
 ## [0.5.0] - 2026-03-23
 
 ### Added

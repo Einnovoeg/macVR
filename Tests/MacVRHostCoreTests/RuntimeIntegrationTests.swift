@@ -1,3 +1,4 @@
+import Darwin
 import XCTest
 @testable import MacVRHostCore
 import MacVRProtocol
@@ -177,6 +178,85 @@ final class RuntimeIntegrationTests: XCTestCase {
         XCTAssertEqual(xrEndFrame(session, &frameEndInfo), XR_SUCCESS)
     }
 
+    func testRuntimeDiscoveryServiceRepliesToProbe() throws {
+        let discoveryPort = try availableUDPPort()
+        let configuration = RuntimeConfiguration(
+            controlPort: 42091,
+            bridgePort: 43091,
+            jpegInputPort: 44091,
+            discoveryPort: discoveryPort,
+            serverName: "Test Runtime",
+            verbose: false
+        )
+        let service = RuntimeDiscoveryService(configuration: configuration, logger: HostLogger(verbose: false))
+        try service.start()
+        defer { service.stop() }
+
+        let announcement = try receiveDiscoveryReply(port: discoveryPort, requestID: "probe-runtime-test")
+        XCTAssertEqual(announcement.serverName, "Test Runtime")
+        XCTAssertEqual(announcement.controlPort, 42091)
+        XCTAssertEqual(announcement.bridgePort, 43091)
+        XCTAssertEqual(announcement.jpegInputPort, 44091)
+        XCTAssertEqual(announcement.supportedStreamModes, [.bridgeJPEG, .displayJPEG, .mock])
+    }
+
+    func testTrustedClientStoreRoundTrip() throws {
+        let fileURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("macvr-trusted-clients-\(UUID().uuidString).json")
+        defer { try? FileManager.default.removeItem(at: fileURL) }
+
+        let store = TrustedClientStore(path: fileURL)
+        XCTAssertEqual(store.trustedClientCount(), 0)
+
+        let trusted = try store.trust(
+            clientName: "macvr-viewer",
+            host: "192.168.1.99",
+            note: "test-lab headset"
+        )
+        XCTAssertEqual(trusted.clientName, "macvr-viewer")
+        XCTAssertEqual(trusted.host, "192.168.1.99")
+        XCTAssertTrue(store.isTrusted(clientName: "macvr-viewer", host: "192.168.1.99"))
+
+        let reloaded = TrustedClientStore(path: fileURL)
+        XCTAssertEqual(reloaded.trustedClientCount(), 1)
+        XCTAssertEqual(reloaded.trustedClients().first?.note, "test-lab headset")
+
+        XCTAssertTrue(try reloaded.untrust(clientName: "macvr-viewer", host: "192.168.1.99"))
+        XCTAssertEqual(reloaded.trustedClientCount(), 0)
+    }
+
+    func testRuntimeTrustPolicyDeniesUnknownRemoteWhenStrictTrustEnabled() throws {
+        let fileURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("macvr-trust-policy-\(UUID().uuidString).json")
+        defer { try? FileManager.default.removeItem(at: fileURL) }
+
+        let store = TrustedClientStore(path: fileURL)
+        let policy = RuntimeTrustPolicy(
+            requireTrustedClients: true,
+            autoTrustLoopbackClients: false,
+            trustedClientStore: store,
+            logger: HostLogger(verbose: false)
+        )
+        let identity = ClientIdentity(
+            clientName: "macvr-viewer",
+            remoteHost: "192.168.1.88",
+            requestedFPS: 72,
+            requestedStreamMode: .bridgeJPEG
+        )
+
+        let denied = policy.authorize(identity)
+        if case .deny(let reason) = denied {
+            XCTAssertTrue(reason.contains("not trusted"))
+        } else {
+            XCTFail("Expected strict trust policy to deny untrusted remote identity")
+        }
+        XCTAssertEqual(policy.deniedCount(), 1)
+
+        _ = try store.trust(clientName: "macvr-viewer", host: "192.168.1.88", note: "manual approval")
+        XCTAssertEqual(policy.authorize(identity), .allow)
+        XCTAssertEqual(policy.deniedCount(), 1)
+    }
+
     func testExperimentalOpenXRRuntimeReadsTrackingStateFile() throws {
         let trackingStateURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("macvr-tracking-\(UUID().uuidString).bin")
@@ -304,5 +384,109 @@ final class RuntimeIntegrationTests: XCTestCase {
         XCTAssertEqual(views[1].pose.position.x, 0.2 + 0.0226, accuracy: 0.0015)
         XCTAssertEqual(views[0].pose.position.z, -0.4 + 0.0226, accuracy: 0.0015)
         XCTAssertEqual(views[1].pose.position.z, -0.4 - 0.0226, accuracy: 0.0015)
+    }
+
+    private func availableUDPPort() throws -> UInt16 {
+        let fd = Darwin.socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP)
+        XCTAssertGreaterThanOrEqual(fd, 0)
+        defer { Darwin.close(fd) }
+
+        var address = sockaddr_in()
+#if os(macOS)
+        address.sin_len = UInt8(MemoryLayout<sockaddr_in>.size)
+#endif
+        address.sin_family = sa_family_t(AF_INET)
+        address.sin_port = 0
+        address.sin_addr = in_addr(s_addr: INADDR_ANY.bigEndian)
+
+        let bindResult = withUnsafePointer(to: &address) { pointer in
+            pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) { rebound in
+                Darwin.bind(fd, rebound, socklen_t(MemoryLayout<sockaddr_in>.size))
+            }
+        }
+        XCTAssertEqual(bindResult, 0)
+
+        var resolved = sockaddr_in()
+        var length = socklen_t(MemoryLayout<sockaddr_in>.size)
+        let nameResult = withUnsafeMutablePointer(to: &resolved) { pointer in
+            pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) { rebound in
+                Darwin.getsockname(fd, rebound, &length)
+            }
+        }
+        XCTAssertEqual(nameResult, 0)
+        return UInt16(bigEndian: resolved.sin_port)
+    }
+
+    private func receiveDiscoveryReply(port: UInt16, requestID: String) throws -> RuntimeDiscoveryAnnouncement {
+        let fd = Darwin.socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP)
+        XCTAssertGreaterThanOrEqual(fd, 0)
+        defer { Darwin.close(fd) }
+
+        var timeout = timeval(tv_sec: 1, tv_usec: 0)
+        var reuseAddress: Int32 = 1
+        XCTAssertEqual(
+            setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &reuseAddress, socklen_t(MemoryLayout<Int32>.size)),
+            0
+        )
+        XCTAssertEqual(
+            setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &timeout, socklen_t(MemoryLayout<timeval>.size)),
+            0
+        )
+
+        var clientAddress = sockaddr_in()
+#if os(macOS)
+        clientAddress.sin_len = UInt8(MemoryLayout<sockaddr_in>.size)
+#endif
+        clientAddress.sin_family = sa_family_t(AF_INET)
+        clientAddress.sin_port = 0
+        clientAddress.sin_addr = in_addr(s_addr: INADDR_ANY.bigEndian)
+        let bindResult = withUnsafePointer(to: &clientAddress) { pointer in
+            pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) { rebound in
+                Darwin.bind(fd, rebound, socklen_t(MemoryLayout<sockaddr_in>.size))
+            }
+        }
+        XCTAssertEqual(bindResult, 0)
+
+        let probe = RuntimeDiscoveryProbe(
+            requestID: requestID,
+            clientName: "macvr-tests",
+            requestedStreamMode: .bridgeJPEG
+        )
+        let encodedProbe = try WireCodec.encode(probe)
+
+        var runtimeAddress = sockaddr_in()
+#if os(macOS)
+        runtimeAddress.sin_len = UInt8(MemoryLayout<sockaddr_in>.size)
+#endif
+        runtimeAddress.sin_family = sa_family_t(AF_INET)
+        runtimeAddress.sin_port = port.bigEndian
+        XCTAssertEqual(inet_pton(AF_INET, "127.0.0.1", &runtimeAddress.sin_addr), 1)
+
+        let sentBytes = withUnsafePointer(to: &runtimeAddress) { pointer in
+            encodedProbe.withUnsafeBytes { rawBuffer in
+                pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) { rebound in
+                    Darwin.sendto(fd, rawBuffer.baseAddress, rawBuffer.count, 0, rebound, socklen_t(MemoryLayout<sockaddr_in>.size))
+                }
+            }
+        }
+        XCTAssertEqual(sentBytes, encodedProbe.count)
+
+        var buffer = [UInt8](repeating: 0, count: 2048)
+        var remoteStorage = sockaddr_storage()
+        var remoteLength = socklen_t(MemoryLayout<sockaddr_storage>.size)
+        let bytesRead = withUnsafeMutablePointer(to: &remoteStorage) { pointer in
+            buffer.withUnsafeMutableBytes { rawBuffer in
+                Darwin.recvfrom(
+                    fd,
+                    rawBuffer.baseAddress,
+                    rawBuffer.count,
+                    0,
+                    UnsafeMutableRawPointer(pointer).assumingMemoryBound(to: sockaddr.self),
+                    &remoteLength
+                )
+            }
+        }
+        XCTAssertGreaterThan(bytesRead, 0)
+        return try WireCodec.decode(RuntimeDiscoveryAnnouncement.self, from: Data(buffer[0..<bytesRead]))
     }
 }

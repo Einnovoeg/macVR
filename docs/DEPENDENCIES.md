@@ -36,6 +36,12 @@
 - `codesign`
   - Used by `scripts/release/build-release.sh` to ad-hoc sign the generated `.app` bundles when the tool is available.
 
+- `sips`
+  - Used to generate icon-set bitmap sizes from `assets/macvr-icon-1024.png` when updating `assets/macvr.icns`.
+
+- `iconutil`
+  - Used to compile `.iconset` folders into the packaged `.icns` app icon.
+
 - `ditto`
   - Used to produce the macOS zip artifact from the staged release directory.
 

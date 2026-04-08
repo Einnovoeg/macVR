@@ -25,6 +25,7 @@ private struct ViewerLaunchOptions {
     var host = "127.0.0.1"
     var controlPort: UInt16 = 42000
     var udpPort: UInt16 = 9944
+    var discoveryPort: UInt16 = 9943
     var requestedFPS = 72
     var requestedStreamMode: StreamMode = .bridgeJPEG
     var autoConnect = false
@@ -37,6 +38,7 @@ private struct ViewerLaunchOptions {
       --host <hostname>       Host address for the TCP control channel (default: 127.0.0.1)
       --control-port <port>   Host TCP control port (default: 42000)
       --udp-port <port>       Local UDP port for video packets (default: 9944)
+      --discovery-port <port> UDP runtime discovery port (default: 9943)
       --fps <value>           Requested pose update rate, 1-240 (default: 72)
       --stream-mode <mode>    Requested mode: display-jpeg | bridge-jpeg | mock (default: bridge-jpeg)
       --auto-connect          Connect automatically when the window opens
@@ -82,6 +84,15 @@ private struct ViewerLaunchOptions {
                     throw ViewerArgumentError.invalidValue("Invalid UDP port: \(arguments[index])")
                 }
                 options.udpPort = value
+            case "--discovery-port":
+                index += 1
+                guard index < arguments.count else {
+                    throw ViewerArgumentError.missingValue(argument)
+                }
+                guard let value = UInt16(arguments[index]), value > 0 else {
+                    throw ViewerArgumentError.invalidValue("Invalid discovery port: \(arguments[index])")
+                }
+                options.discoveryPort = value
             case "--fps":
                 index += 1
                 guard index < arguments.count else {
@@ -507,6 +518,8 @@ private final class ViewerTransport: @unchecked Sendable {
             guard let error = message.error else {
                 return
             }
+            status.streamState = "Error: \(error.code)"
+            emitStatus()
             log("WARN", "Server error [\(error.code)]: \(error.message)")
         case .pong:
             guard let pong = message.pong else {
@@ -766,10 +779,12 @@ private final class ViewerModel: ObservableObject {
     @Published var host: String
     @Published var controlPort: String
     @Published var udpPort: String
+    @Published var discoveryPort: String
     @Published var requestedFPS: String
     @Published var requestedStreamMode: StreamMode
     @Published var previewMode: ViewerPreviewMode = .duplicate
     @Published var errorMessage: String?
+    @Published private(set) var discoveredRuntimes: [DiscoveredRuntime] = []
     @Published private(set) var leftImage: NSImage?
     @Published private(set) var rightImage: NSImage?
     @Published private(set) var frameCount: UInt64 = 0
@@ -785,6 +800,7 @@ private final class ViewerModel: ObservableObject {
     @Published private(set) var lastFrameLatencyMs = 0.0
     @Published private(set) var lastFrameClock = "Idle"
     @Published private(set) var logs: [String] = []
+    @Published private(set) var isDiscovering = false
     @Published private(set) var isConnected = false
 
     private let launchOptions: ViewerLaunchOptions
@@ -801,6 +817,7 @@ private final class ViewerModel: ObservableObject {
         self.host = launchOptions.host
         self.controlPort = String(launchOptions.controlPort)
         self.udpPort = String(launchOptions.udpPort)
+        self.discoveryPort = String(launchOptions.discoveryPort)
         self.requestedFPS = String(launchOptions.requestedFPS)
         self.requestedStreamMode = launchOptions.requestedStreamMode
     }
@@ -861,6 +878,53 @@ private final class ViewerModel: ObservableObject {
         connectionState = "Disconnected"
         streamState = "Stopped"
         appendLog("Viewer disconnected")
+    }
+
+    func discoverRuntimes() {
+        guard !isDiscovering else {
+            return
+        }
+        guard let parsedDiscoveryPort = UInt16(discoveryPort), parsedDiscoveryPort > 0 else {
+            errorMessage = "Discovery port must be a valid port number"
+            return
+        }
+
+        isDiscovering = true
+        errorMessage = nil
+        appendLog("Broadcasting discovery probe on UDP port \(parsedDiscoveryPort)")
+
+        let requestedMode = requestedStreamMode
+        Task.detached(priority: .userInitiated) {
+            do {
+                let runtimes = try ViewerDiscoveryClient.discover(
+                    port: parsedDiscoveryPort,
+                    clientName: "macvr-viewer",
+                    requestedStreamMode: requestedMode
+                )
+                await MainActor.run {
+                    self.discoveredRuntimes = runtimes
+                    self.isDiscovering = false
+                    self.appendLog("Discovery finished: found \(runtimes.count) runtime(s)")
+                    self.errorMessage = runtimes.isEmpty ? "No macVR runtimes replied to the discovery probe." : nil
+                }
+            } catch {
+                await MainActor.run {
+                    self.isDiscovering = false
+                    self.errorMessage = error.localizedDescription
+                    self.appendLog("Discovery failed: \(error.localizedDescription)")
+                }
+            }
+        }
+    }
+
+    func applyDiscoveredRuntime(_ runtime: DiscoveredRuntime) {
+        host = runtime.host
+        controlPort = String(runtime.controlPort)
+        if runtime.supportedStreamModes.contains(requestedStreamMode) == false, let fallbackMode = runtime.supportedStreamModes.first {
+            requestedStreamMode = fallbackMode
+        }
+        errorMessage = nil
+        appendLog("Selected discovered runtime \(runtime.serverName) at \(runtime.host):\(runtime.controlPort)")
     }
 
     func clearLogs() {
@@ -1340,6 +1404,12 @@ private struct ViewerContentView: View {
                         helpText: "Local UDP port on which the viewer listens for packetized video frames.",
                         disabled: model.isConnected
                     )
+                    ViewerTextField(
+                        title: "Discovery Port",
+                        value: $model.discoveryPort,
+                        helpText: "UDP port used when the viewer broadcasts a discovery probe to find macVR runtimes on the local network.",
+                        disabled: model.isConnected || model.isDiscovering
+                    )
                 }
 
                 VStack(alignment: .leading, spacing: 12) {
@@ -1380,6 +1450,56 @@ private struct ViewerContentView: View {
                         .font(.footnote)
                         .foregroundStyle(.secondary)
                         .help("Latest stream-status message reported by the host over the control channel.")
+
+                    HStack(spacing: 12) {
+                        Button(action: model.discoverRuntimes) {
+                            Label(model.isDiscovering ? "Discovering..." : "Discover Runtimes", systemImage: "dot.radiowaves.left.and.right")
+                        }
+                        .buttonStyle(.bordered)
+                        .disabled(model.isConnected || model.isDiscovering)
+                        .help("Broadcast a UDP discovery probe and collect matching macVR runtimes before opening the TCP control connection.")
+
+                        if model.isDiscovering {
+                            ProgressView()
+                                .help("The viewer is waiting for discovery replies.")
+                        }
+                    }
+                }
+            }
+
+            if model.discoveredRuntimes.isEmpty == false {
+                Divider()
+
+                VStack(alignment: .leading, spacing: 10) {
+                    Text("Discovered Runtimes")
+                        .font(.headline)
+                    ForEach(model.discoveredRuntimes) { runtime in
+                        HStack(alignment: .center, spacing: 12) {
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text(runtime.serverName)
+                                    .font(.subheadline.weight(.semibold))
+                                Text("\(runtime.host):\(runtime.controlPort) | build \(runtime.buildVersion)")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                                Text(runtime.message)
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                            Spacer()
+                            Button("Use") {
+                                model.applyDiscoveredRuntime(runtime)
+                            }
+                            .buttonStyle(.borderedProminent)
+                            .tint(.orange)
+                            .help("Apply this discovered runtime to the host and control-port fields.")
+                        }
+                        .padding(12)
+                        .background(
+                            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                                .fill(Color.black.opacity(0.06))
+                        )
+                        .help("Runtime discovered over UDP with the ports and stream modes it advertised.")
+                    }
                 }
             }
         }

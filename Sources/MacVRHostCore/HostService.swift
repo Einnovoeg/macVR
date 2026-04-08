@@ -28,6 +28,7 @@ public final class HostService: @unchecked Sendable {
     private let configuration: HostConfiguration
     private let bridgeFrameStore: BridgeFrameStore?
     private let logger: HostLogger
+    private let clientAuthorizer: HostClientAuthorizer?
     private let registry = SessionRegistry()
     private let queue = DispatchQueue(label: "macvr.host.listener")
     private let trackingStateStore: TrackingStateStore?
@@ -37,7 +38,8 @@ public final class HostService: @unchecked Sendable {
     public init(
         configuration: HostConfiguration,
         logger: HostLogger,
-        bridgeFrameStore: BridgeFrameStore? = nil
+        bridgeFrameStore: BridgeFrameStore? = nil,
+        clientAuthorizer: HostClientAuthorizer? = nil
     ) throws {
         guard configuration.controlPort > 0 else {
             throw HostServiceError.invalidControlPort(configuration.controlPort)
@@ -45,6 +47,7 @@ public final class HostService: @unchecked Sendable {
         self.configuration = configuration
         self.bridgeFrameStore = bridgeFrameStore
         self.logger = logger
+        self.clientAuthorizer = clientAuthorizer
         self.trackingStateStore = configuration.trackingStatePath.map { TrackingStateStore(path: URL(fileURLWithPath: $0)) }
     }
 
@@ -243,6 +246,29 @@ public final class HostService: @unchecked Sendable {
             )
             return
         }
+        let remoteHost = Self.hostString(from: host)
+
+        if let clientAuthorizer {
+            let identity = ClientIdentity(
+                clientName: payload.clientName,
+                remoteHost: remoteHost,
+                requestedFPS: payload.requestedFPS,
+                requestedStreamMode: payload.requestedStreamMode
+            )
+            if case .deny(let reason) = clientAuthorizer(identity) {
+                sendProtocolError(
+                    code: "CLIENT_NOT_TRUSTED",
+                    message: reason,
+                    connection: connection
+                )
+                logger.log(
+                    .warning,
+                    "Rejected untrusted client \(payload.clientName) from \(remoteHost)"
+                )
+                cleanupConnection(id: context.id)
+                return
+            }
+        }
 
         let sessionID = UUID().uuidString.lowercased()
         let streamMode = payload.requestedStreamMode ?? configuration.streamMode
@@ -372,6 +398,19 @@ public final class HostService: @unchecked Sendable {
             return nil
         }
         return host
+    }
+
+    private static func hostString(from host: NWEndpoint.Host) -> String {
+        switch host {
+        case .name(let value, _):
+            return value
+        case .ipv4(let address):
+            return address.debugDescription
+        case .ipv6(let address):
+            return address.debugDescription
+        @unknown default:
+            return host.debugDescription
+        }
     }
 
     private static func codec(for mode: StreamMode) -> FrameCodec {

@@ -48,6 +48,11 @@ This note summarizes what FEX, Proton, Wine, Game Porting Toolkit, and related o
 - Requirements include SteamVR.
 - Practical implication: ALVR does not currently provide a native macOS host path for PCVR streaming.
 
+### KinectToVR
+
+- KinectToVR (`k2vr`) is an open-source full-body tracking project that can inform tracker fusion and body-input architecture.
+- Practical implication: useful as a tracking-pipeline reference, but not a complete macOS OpenXR runtime or SteamVR replacement.
+
 ### Virtual Desktop
 
 - Virtual Desktop’s official site states PCVR game streaming requires a VR-ready **Windows** PC.
@@ -75,4 +80,5 @@ This note summarizes what FEX, Proton, Wine, Game Porting Toolkit, and related o
 - OpenXR SDK source: https://github.com/KhronosGroup/OpenXR-SDK-Source
 - Monado upstream project: https://gitlab.freedesktop.org/monado/monado
 - ALVR README/support table: https://github.com/alvr-org/ALVR
+- KinectToVR upstream project: https://github.com/KinectToVR/k2vr
 - Virtual Desktop official site (requirements): https://www.vrdesktop.net/

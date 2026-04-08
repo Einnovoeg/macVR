@@ -10,7 +10,12 @@ public struct RuntimeConfiguration: Sendable {
     public let controlPort: UInt16
     public let bridgePort: UInt16
     public let jpegInputPort: UInt16
+    public let discoveryPort: UInt16
     public let targetFPS: Int
+    public let serverName: String
+    public let requireTrustedClients: Bool
+    public let autoTrustLoopbackClients: Bool
+    public let trustedClientsPath: String
     public let frameTag: String
     public let maxPacketSize: Int
     public let bridgeMaxFrameAgeMs: Int
@@ -22,7 +27,12 @@ public struct RuntimeConfiguration: Sendable {
         controlPort: UInt16 = 42000,
         bridgePort: UInt16 = 43000,
         jpegInputPort: UInt16 = 44000,
+        discoveryPort: UInt16 = 9943,
         targetFPS: Int = 72,
+        serverName: String = "macVR Runtime",
+        requireTrustedClients: Bool = false,
+        autoTrustLoopbackClients: Bool = true,
+        trustedClientsPath: String = RuntimeConfiguration.suggestedTrustedClientsPath(),
         frameTag: String = "runtime",
         maxPacketSize: Int = FrameChunkPacketizer.defaultMaxPacketSize,
         bridgeMaxFrameAgeMs: Int = 250,
@@ -33,7 +43,16 @@ public struct RuntimeConfiguration: Sendable {
         self.controlPort = controlPort
         self.bridgePort = bridgePort
         self.jpegInputPort = jpegInputPort
+        self.discoveryPort = discoveryPort
         self.targetFPS = HostConfiguration.clampFPS(targetFPS)
+        let trimmedServerName = serverName.trimmingCharacters(in: .whitespacesAndNewlines)
+        self.serverName = trimmedServerName.isEmpty ? "macVR Runtime" : trimmedServerName
+        self.requireTrustedClients = requireTrustedClients
+        self.autoTrustLoopbackClients = autoTrustLoopbackClients
+        let trimmedTrustedClientsPath = trustedClientsPath.trimmingCharacters(in: .whitespacesAndNewlines)
+        self.trustedClientsPath = trimmedTrustedClientsPath.isEmpty
+            ? Self.suggestedTrustedClientsPath()
+            : trimmedTrustedClientsPath
         self.frameTag = frameTag.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "runtime" : frameTag
         self.maxPacketSize = HostConfiguration.clampPacketSize(maxPacketSize)
         self.bridgeMaxFrameAgeMs = HostConfiguration.clampBridgeFrameAgeMs(bridgeMaxFrameAgeMs)
@@ -47,6 +66,10 @@ public struct RuntimeConfiguration: Sendable {
 
     public static func clampJPEGMaxBytes(_ value: Int) -> Int {
         min(max(value, 16_384), 16_000_000)
+    }
+
+    public static func suggestedTrustedClientsPath() -> String {
+        TrustedClientStore.suggestedPath().path
     }
 
     public var hostConfiguration: HostConfiguration {

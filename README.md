@@ -2,7 +2,7 @@
 
 `macVR` is an experimental macOS VR runtime toolkit. It now ships a bundled native runtime service, an experimental OpenXR runtime shim, a graphical macOS control center, a graphical macOS viewer/receiver, and the bridge ingest tools needed to feed external renderers into the transport stack.
 
-Current release: `0.5.0`
+Current release: `0.7.0`
 
 This project is still experimental, but the current release is no longer limited to CLI-only transport probes. It includes:
 
@@ -10,6 +10,8 @@ This project is still experimental, but the current release is no longer limited
 - `MacVROpenXRRuntime`, an experimental OpenXR runtime shim with manifest generation support.
 - `macvr-control-center`, a packaged SwiftUI desktop control center with hover tooltips on every control.
 - `macvr-viewer`, a packaged SwiftUI receiver that connects to the transport stack, decodes live frames, and shows a stereo preview with connection metrics.
+- ALVR-style local-network discovery between runtime and viewer so clients can discover available runtimes before starting control-channel sessions.
+- Optional strict trusted-client policy with a persistent allowlist for runtime control-channel handshakes.
 - Existing host, client, bridge simulator, static JPEG sender, and live display capture sender tools for validation and interoperability work.
 
 Support the project: [buymeacoffee.com/einnovoeg](https://buymeacoffee.com/einnovoeg)
@@ -22,6 +24,8 @@ Support the project: [buymeacoffee.com/einnovoeg](https://buymeacoffee.com/einno
 - Accepts local length-prefixed JPEG frames directly into the bundled runtime over localhost TCP.
 - Captures the live macOS desktop directly into the runtime with `macvr-capture-sender`.
 - Connects to the runtime or host with `macvr-viewer` and renders a live stereo preview of the received stream.
+- Discovers runtimes over UDP from the viewer UI and applies discovered runtime addresses and control ports directly.
+- Supports optional trusted-client enforcement and persistent allowlist management through both CLI flags and control-center GUI.
 - Generates an OpenXR runtime manifest that points to the included experimental runtime shim.
 - Writes the latest client head pose into a shared binary tracking-state file so the OpenXR shim can answer pose queries from a separate loader-driven process.
 - Ships graphical control center and viewer apps for runtime management and live transport validation.
@@ -34,8 +38,8 @@ Support the project: [buymeacoffee.com/einnovoeg](https://buymeacoffee.com/einno
 - `macvr-jpeg-sender`: portable helper that repeatedly sends `uint32_be length + JPEG bytes` to a local input socket.
 - `macvr-capture-sender`: native macOS display capture sender that pushes live desktop frames into the runtime over localhost TCP.
 - `macvr-runtime`: bundled runtime that combines bridge ingest, local JPEG ingest, and host streaming in one process.
-- `macvr-control-center`: SwiftUI control center for runtime launch, manifest writing, and live status inspection.
-- `macvr-viewer`: SwiftUI transport receiver that negotiates sessions, receives UDP frames, and displays a stereo preview with logs and throughput metrics.
+- `macvr-control-center`: SwiftUI control center for runtime launch, trusted-client policy management, manifest writing, and live status inspection.
+- `macvr-viewer`: SwiftUI transport receiver that negotiates sessions, receives UDP frames, displays a stereo preview with logs and throughput metrics, and can discover runtimes on the local network.
 - `libMacVROpenXRRuntime.dylib`: experimental OpenXR runtime shim for loader integration tests.
 
 ## System Requirements
@@ -54,7 +58,7 @@ See [docs/DEPENDENCIES.md](docs/DEPENDENCIES.md) for the full dependency list.
 ## Install
 
 ```bash
-git clone https://github.com/Einnovoeg/macVR.git
+git clone https://github.com/<your-org-or-user>/macVR.git
 cd macVR
 swift build
 swift test
@@ -68,7 +72,7 @@ Create the versioned `.app` bundles, CLI binaries, dylib, release notes, and zip
 scripts/release/build-release.sh
 ```
 
-By default this writes a release directory under `dist/` and produces a zip named like `macVR-$(cat VERSION)-macos-arm64.zip`.
+By default this writes a release directory under `dist/` and produces a zip named like `macVR-$(cat VERSION)-macos-arm64.zip`. The packaged GUI apps include the `macVR` app icon from `assets/macvr.icns`.
 
 ## Quick Start
 
@@ -110,7 +114,33 @@ Or launch the bundled runtime directly:
 swift run macvr-runtime --verbose
 ```
 
+Set a discovery identity explicitly (useful on shared networks):
+
+```bash
+swift run macvr-runtime \
+  --discovery-port 9943 \
+  --server-name "macVR Runtime" \
+  --verbose
+```
+
 The bundled runtime writes the latest tracked head pose to `~/Library/Application Support/macVR/tracking-state-v1.bin` by default. The OpenXR shim reads the same path, or the path provided through `MACVR_TRACKING_STATE_PATH`.
+
+Enable strict trusted-client mode:
+
+```bash
+swift run macvr-runtime \
+  --require-trusted-clients \
+  --trust-client "macvr-viewer@127.0.0.1" \
+  --verbose
+```
+
+Inspect or edit trusted clients without starting the runtime:
+
+```bash
+swift run macvr-runtime --list-trusted-clients
+swift run macvr-runtime --trust-client "macvr-viewer@192.168.1.25"
+swift run macvr-runtime --untrust-client "macvr-viewer@192.168.1.25"
+```
 
 Write an OpenXR manifest that points to the local build output:
 
@@ -137,6 +167,8 @@ swift run macvr-runtime \
   --control-port 42000 \
   --bridge-port 43000 \
   --jpeg-input-port 44000 \
+  --discovery-port 9943 \
+  --server-name "macVR Runtime" \
   --verbose
 ```
 
@@ -151,6 +183,8 @@ swift run macvr-viewer \
   --auto-connect \
   --verbose
 ```
+
+Or open the viewer GUI and click `Discover Runtimes`, then click `Use` on the discovered runtime card before pressing `Connect`.
 
 Terminal 3:
 
@@ -288,10 +322,10 @@ wine64 "$PWD/.build/win/macvr-jpeg-sender.exe" \
 
 ## Versioning
 
-- Project release version: `0.5.0`
+- Project release version: `0.7.0`
 - Wire protocol version: `1`
 - Changelog: [CHANGELOG.md](CHANGELOG.md)
-- Release notes: [docs/releases/v0.5.0.md](docs/releases/v0.5.0.md)
+- Release notes: [docs/releases/v0.7.0.md](docs/releases/v0.7.0.md)
 - Release packager: `scripts/release/build-release.sh`
 
 ## Licensing And Credits
@@ -300,7 +334,7 @@ wine64 "$PWD/.build/win/macvr-jpeg-sender.exe" \
 - Third-party notices: [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)
 - Research notes used to scope interoperability work: [docs/native-macos-vr-research.md](docs/native-macos-vr-research.md)
 
-Referenced interoperability and research projects credited in this release include FEX (Ryan Houdek and contributors), Proton (Valve Corporation), Wine (the Wine project authors), OpenXR-SDK-Source (Khronos Group and contributors), Monado contributors, and ALVR (polygraphene and alvr-org).
+Referenced interoperability and research projects credited in this release include FEX (Ryan Houdek and contributors), Proton (Valve Corporation), Wine (the Wine project authors), OpenXR-SDK-Source (Khronos Group and contributors), Monado contributors, ALVR (polygraphene and alvr-org), and KinectToVR contributors.
 
 ## Current Limits
 

@@ -27,6 +27,12 @@ xcuserdata/
 *.log
 /tmp/
 
+# PlatformIO / Arduino caches
+.pio/
+.pioenvs/
+.piolibdeps/
+Arduino15/
+
 # Release artifacts
 dist/
 *.zip

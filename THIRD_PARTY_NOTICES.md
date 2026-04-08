@@ -74,6 +74,12 @@ This release explicitly credits the primary upstream authors and organizations r
     - `Copyright (c) 2018-2019 polygraphene`
     - `Copyright (c) 2020-2024 alvr-org`
 
+- KinectToVR
+  - Role: Full-body tracking pipeline reference for input/pose architecture exploration.
+  - Upstream: https://github.com/KinectToVR/k2vr
+  - License: GNU General Public License v3.0 (as declared by the upstream repository)
+  - Upstream project: KinectToVR contributors
+
 ## Referenced Proprietary Software
 
 - Apple Game Porting Toolkit

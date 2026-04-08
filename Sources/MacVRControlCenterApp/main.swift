@@ -13,7 +13,15 @@ final class ControlCenterModel: ObservableObject {
     @Published var controlPort = "42000"
     @Published var bridgePort = "43000"
     @Published var jpegInputPort = "44000"
+    @Published var discoveryPort = "9943"
     @Published var fps = "72"
+    @Published var serverName = "macVR Runtime"
+    @Published var requireTrustedClients = false
+    @Published var autoTrustLoopbackClients = true
+    @Published var trustedClientsPath = RuntimeConfiguration.suggestedTrustedClientsPath()
+    @Published var trustedClientName = "macvr-viewer"
+    @Published var trustedClientHost = "127.0.0.1"
+    @Published var trustedClientNote = ""
     @Published var frameTag = "runtime"
     @Published var maxPacketSize = "1200"
     @Published var bridgeMaxFrameAgeMs = "250"
@@ -23,6 +31,7 @@ final class ControlCenterModel: ObservableObject {
     @Published var runtimeLibraryPath = OpenXRRuntimeManifest.suggestedRuntimeLibraryPath()
     @Published var errorMessage: String?
     @Published private(set) var logs: [String] = []
+    @Published private(set) var trustedClients: [TrustedClientRecord] = []
     @Published private(set) var runtimeStatus = RuntimeStatusSnapshot.stopped()
     @Published private(set) var isRunning = false
 
@@ -31,6 +40,10 @@ final class ControlCenterModel: ObservableObject {
 
     var logsText: String {
         logs.joined(separator: "\n")
+    }
+
+    init() {
+        refreshTrustedClients()
     }
 
     func startRuntime() {
@@ -76,6 +89,7 @@ final class ControlCenterModel: ObservableObject {
             runtimeStatus = RuntimeStatusSnapshot.stopped()
             isRunning = false
         }
+        refreshTrustedClients()
     }
 
     func writeManifest() {
@@ -161,6 +175,76 @@ final class ControlCenterModel: ObservableObject {
         NSWorkspace.shared.open(URL(fileURLWithPath: manifestPath).deletingLastPathComponent())
     }
 
+    func addTrustedClient() {
+        let clientName = trustedClientName.trimmingCharacters(in: .whitespacesAndNewlines)
+        let host = trustedClientHost.trimmingCharacters(in: .whitespacesAndNewlines)
+        let note = trustedClientNote.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        guard !clientName.isEmpty else {
+            errorMessage = "Trusted client name cannot be empty."
+            return
+        }
+        guard !host.isEmpty else {
+            errorMessage = "Trusted client host cannot be empty."
+            return
+        }
+
+        do {
+            if let runtime {
+                _ = try runtime.trustClient(
+                    clientName: clientName,
+                    host: host,
+                    note: note.isEmpty ? nil : note
+                )
+            } else {
+                let store = TrustedClientStore(path: trustedClientsPath)
+                _ = try store.trust(
+                    clientName: clientName,
+                    host: host,
+                    note: note.isEmpty ? nil : note
+                )
+            }
+            errorMessage = nil
+            trustedClientNote = ""
+            appendLog("Trusted client added: \(clientName)@\(host)")
+            refreshTrustedClients()
+        } catch {
+            errorMessage = error.localizedDescription
+            appendLog("Failed to add trusted client: \(error.localizedDescription)")
+        }
+    }
+
+    func removeTrustedClient(_ client: TrustedClientRecord) {
+        do {
+            let removed: Bool
+            if let runtime {
+                removed = try runtime.untrustClient(clientName: client.clientName, host: client.host)
+            } else {
+                let store = TrustedClientStore(path: trustedClientsPath)
+                removed = try store.untrust(clientName: client.clientName, host: client.host)
+            }
+
+            if removed {
+                appendLog("Trusted client removed: \(client.clientName)@\(client.host)")
+                errorMessage = nil
+            } else {
+                appendLog("Trusted client not found: \(client.clientName)@\(client.host)")
+            }
+            refreshTrustedClients()
+        } catch {
+            errorMessage = error.localizedDescription
+            appendLog("Failed to remove trusted client: \(error.localizedDescription)")
+        }
+    }
+
+    func refreshTrustedClients() {
+        if let runtime {
+            trustedClients = runtime.trustedClients()
+        } else {
+            trustedClients = TrustedClientStore(path: trustedClientsPath).trustedClients()
+        }
+    }
+
     private func beginStatusPolling() {
         statusTask?.cancel()
         statusTask = Task { [weak self] in
@@ -186,6 +270,7 @@ final class ControlCenterModel: ObservableObject {
         let parsedControlPort = try parsePort(controlPort, field: "Control port")
         let parsedBridgePort = try parsePort(bridgePort, field: "Bridge port")
         let parsedJPEGInputPort = try parsePort(jpegInputPort, field: "JPEG input port")
+        let parsedDiscoveryPort = try parsePort(discoveryPort, field: "Discovery port")
         let parsedFPS = try parseInt(fps, field: "FPS", range: 1...240)
         let parsedPacketSize = try parseInt(maxPacketSize, field: "Max packet size", range: 512...65_507)
         let parsedBridgeAge = try parseInt(bridgeMaxFrameAgeMs, field: "Bridge max frame age", range: 0...10_000)
@@ -199,12 +284,25 @@ final class ControlCenterModel: ObservableObject {
         guard !trimmedFrameTag.isEmpty else {
             throw NSError(domain: "macVR.ControlCenter", code: 1, userInfo: [NSLocalizedDescriptionKey: "Frame tag cannot be empty"])
         }
+        let trimmedServerName = serverName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedServerName.isEmpty else {
+            throw NSError(domain: "macVR.ControlCenter", code: 5, userInfo: [NSLocalizedDescriptionKey: "Runtime name cannot be empty"])
+        }
+        let trimmedTrustedClientsPath = trustedClientsPath.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedTrustedClientsPath.isEmpty else {
+            throw NSError(domain: "macVR.ControlCenter", code: 6, userInfo: [NSLocalizedDescriptionKey: "Trusted clients path cannot be empty"])
+        }
 
         return RuntimeConfiguration(
             controlPort: parsedControlPort,
             bridgePort: parsedBridgePort,
             jpegInputPort: parsedJPEGInputPort,
+            discoveryPort: parsedDiscoveryPort,
             targetFPS: parsedFPS,
+            serverName: trimmedServerName,
+            requireTrustedClients: requireTrustedClients,
+            autoTrustLoopbackClients: autoTrustLoopbackClients,
+            trustedClientsPath: trimmedTrustedClientsPath,
             frameTag: trimmedFrameTag,
             maxPacketSize: parsedPacketSize,
             bridgeMaxFrameAgeMs: parsedBridgeAge,
@@ -356,6 +454,7 @@ struct ContentView: View {
                     }
                     metrics
                     runtimeSection
+                    trustedClientsSection
                     openXRSection
                     logsSection
                 }
@@ -460,6 +559,12 @@ struct ContentView: View {
                 detail: model.runtimeStatus.lastInputResolution.map { "Latest decoded frame: \($0)" } ?? "No decoded input frame yet",
                 helpText: "Shows how long the bundled runtime has been active and the latest decoded input resolution."
             )
+            MetricCard(
+                title: "Trusted Clients",
+                value: "\(model.runtimeStatus.trustedClientCount)",
+                detail: "Denied untrusted: \(model.runtimeStatus.deniedUntrustedClientCount)",
+                helpText: "Current trusted-client inventory and count of rejected untrusted client handshakes."
+            )
         }
     }
 
@@ -489,6 +594,12 @@ struct ContentView: View {
                         disabled: model.isRunning
                     )
                     PortField(
+                        title: "Discovery Port",
+                        value: $model.discoveryPort,
+                        helpText: "UDP port on which the bundled runtime listens for ALVR-style viewer discovery probes.",
+                        disabled: model.isRunning
+                    )
+                    PortField(
                         title: "Target FPS",
                         value: $model.fps,
                         helpText: "Host-side target frame rate for bridge-jpeg sessions.",
@@ -496,6 +607,25 @@ struct ContentView: View {
                     )
                 }
                 VStack(spacing: 12) {
+                    PortField(
+                        title: "Runtime Name",
+                        value: $model.serverName,
+                        helpText: "Friendly runtime name returned to viewers during discovery. Keep this generic if you do not want to advertise a machine hostname.",
+                        disabled: model.isRunning
+                    )
+                    VStack(alignment: .leading, spacing: 8) {
+                        Toggle("Require Trusted Clients", isOn: $model.requireTrustedClients)
+                            .disabled(model.isRunning)
+                            .help("When enabled, the runtime rejects any hello handshake from clients that are not listed in the trusted-clients store.")
+                        Toggle("Auto-Trust Loopback Clients", isOn: $model.autoTrustLoopbackClients)
+                            .disabled(model.isRunning)
+                            .help("Automatically trust localhost clients (127.0.0.1, ::1, localhost) during handshake to keep local testing fast.")
+                    }
+                    .padding(10)
+                    .background(
+                        RoundedRectangle(cornerRadius: 12, style: .continuous)
+                            .fill(Color.black.opacity(0.05))
+                    )
                     PortField(
                         title: "Frame Tag",
                         value: $model.frameTag,
@@ -526,6 +656,12 @@ struct ContentView: View {
                         helpText: "Binary pose handoff file written by the runtime so the OpenXR shim can read the newest tracked head pose across processes.",
                         disabled: model.isRunning
                     )
+                    PortField(
+                        title: "Trusted Clients Path",
+                        value: $model.trustedClientsPath,
+                        helpText: "JSON file used for persistent trusted-client entries. This file can be edited manually or through the controls below.",
+                        disabled: model.isRunning
+                    )
                 }
             }
 
@@ -550,6 +686,92 @@ struct ContentView: View {
                     detail: model.runtimeStatus.bridgeStats.lastSource.map { "Last source: \($0)" } ?? "No bridge source observed yet",
                     helpText: "Total accepted JPEG payload volume since the bundled runtime was started."
                 )
+            }
+        }
+    }
+
+    private var trustedClientsSection: some View {
+        SectionCard(
+            title: "Trusted Clients",
+            subtitle: "Manage the runtime client allowlist used by strict trust mode. Entries are persisted to the configured trust-store JSON file."
+        ) {
+            VStack(alignment: .leading, spacing: 12) {
+                HStack(alignment: .top, spacing: 12) {
+                    PortField(
+                        title: "Client Name",
+                        value: $model.trustedClientName,
+                        helpText: "Client identifier sent in hello payloads, for example macvr-viewer.",
+                        disabled: false
+                    )
+                    PortField(
+                        title: "Client Host",
+                        value: $model.trustedClientHost,
+                        helpText: "Expected remote host or IP address for this trusted client entry.",
+                        disabled: false
+                    )
+                    PortField(
+                        title: "Note (optional)",
+                        value: $model.trustedClientNote,
+                        helpText: "Optional operator note stored with the trusted entry for future audit context.",
+                        disabled: false
+                    )
+                }
+
+                HStack(spacing: 12) {
+                    Button(action: model.addTrustedClient) {
+                        Label("Add Trusted Client", systemImage: "plus")
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .tint(.orange)
+                    .help("Persist a trusted client entry using the name and host fields above.")
+
+                    Button(action: model.refreshTrustedClients) {
+                        Label("Refresh List", systemImage: "arrow.clockwise")
+                    }
+                    .buttonStyle(.bordered)
+                    .help("Reload trusted-client entries from the current trust-store path.")
+                }
+
+                if model.trustedClients.isEmpty {
+                    Text("No trusted clients configured yet.")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                        .help("Add a client entry before enabling strict trust mode for remote clients.")
+                } else {
+                    ForEach(model.trustedClients) { trustedClient in
+                        HStack(alignment: .top, spacing: 12) {
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text("\(trustedClient.clientName)@\(trustedClient.host)")
+                                    .font(.subheadline.weight(.semibold))
+                                Text("First trusted: \(trustedClient.firstTrustedAt.formatted(date: .abbreviated, time: .shortened))")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                                Text("Last seen: \(trustedClient.lastSeenAt.formatted(date: .abbreviated, time: .shortened))")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                                if let note = trustedClient.note, !note.isEmpty {
+                                    Text("Note: \(note)")
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                }
+                            }
+                            Spacer()
+                            Button(role: .destructive) {
+                                model.removeTrustedClient(trustedClient)
+                            } label: {
+                                Label("Remove", systemImage: "trash")
+                            }
+                            .buttonStyle(.bordered)
+                            .help("Remove this client from the trusted allowlist.")
+                        }
+                        .padding(12)
+                        .background(
+                            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                                .fill(Color.black.opacity(0.05))
+                        )
+                        .help("Trusted client entry persisted in the runtime trust-store file.")
+                    }
+                }
             }
         }
     }

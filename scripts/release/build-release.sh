@@ -18,9 +18,15 @@ BIN_DIR="$RELEASE_DIR/bin"
 DOCS_DIR="$RELEASE_DIR/docs"
 ZIP_PATH="${RELEASE_DIR}.zip"
 CHECKSUM_PATH="${ZIP_PATH}.sha256"
+ICON_SOURCE="$ROOT_DIR/assets/macvr.icns"
 
 if [[ -z "$VERSION" ]]; then
   echo "VERSION file is empty" >&2
+  exit 1
+fi
+
+if [[ ! -f "$ICON_SOURCE" ]]; then
+  echo "Missing app icon: $ICON_SOURCE" >&2
   exit 1
 fi
 
@@ -39,6 +45,7 @@ stage_app_bundle() {
 
   mkdir -p "$app_macos_dir" "$app_resources_dir"
   cp "$BUILD_DIR/$executable_name" "$app_macos_dir/$executable_name"
+  cp "$ICON_SOURCE" "$app_resources_dir/macvr.icns"
 
   cat > "$app_dir/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
@@ -55,6 +62,8 @@ stage_app_bundle() {
   <string>6.0</string>
   <key>CFBundleName</key>
   <string>${display_name}</string>
+  <key>CFBundleIconFile</key>
+  <string>macvr.icns</string>
   <key>CFBundlePackageType</key>
   <string>APPL</string>
   <key>CFBundleShortVersionString</key>
